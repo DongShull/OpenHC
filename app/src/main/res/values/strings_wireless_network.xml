@@ -1,0 +1,24 @@
+<?xml version="1.0" encoding="utf-8"?>
+<resources>
+    <!-- 无线连接里 WiFi 那一段：车机开热点；退出后恢复车机 WiFi -->
+
+    <!-- 设置页 -->
+    <string name="settings_wireless_restore">退出后恢复车机 WiFi（默认关）</string>
+    <string name="settings_wireless_restore_hint">无线连接结束、热点关掉以后，如果车机 WiFi 是因为开热点才断开的，就把它打开。安卓 10 起应用不能自己打开 WiFi：车机 WiFi 没有自己恢复时，首页顶上会提示你去系统里打开。</string>
+
+    <!-- 首页无线卡片 -->
+    <string name="wireless_network_line">无线方式：车机开热点。手机连上来时，车机原来连着的 WiFi 会断开。</string>
+    <string name="wireless_hint_negotiating_hotspot">认证成功，车机正在开热点，和手机商量 WiFi…</string>
+    <string name="wireless_hint_sending_hotspot">车机热点已打开，正在把热点信息发给手机…</string>
+    <string name="wireless_hint_waiting_join_hotspot">等手机连上车机热点…（手机开着热点的话会被关掉）</string>
+    <string name="wireless_end_step_hotspot">车机开热点失败（%1$s）。安卓 8～12 的车机要打开系统定位开关；车机开着个人热点时先关掉。</string>
+    <string name="wireless_end_step_join_hotspot">手机没能连上车机热点（%1$s）。可以重新开始再试一次。</string>
+
+    <!-- 退出后恢复车机 WiFi：应用打不开 WiFi 时的提示 -->
+    <string name="wireless_restore_title">车机 WiFi 还关着</string>
+    <string name="wireless_restore_text">刚才开热点时车机 WiFi 断开了。热点已经关掉，但 WiFi 没有自己恢复，这个系统版本又不允许应用直接打开 WiFi。请点下面的按钮去打开；打不开的话，在车机设置里手动打开。</string>
+    <string name="wireless_restore_open_panel">打开 WiFi</string>
+    <string name="wireless_restore_open_settings">WiFi 设置</string>
+    <string name="wireless_restore_dismiss">知道了</string>
+    <string name="wireless_restore_unavailable">这台车机打不开系统的 WiFi 页面，请在车机设置里手动打开 WiFi。</string>
+</resources>

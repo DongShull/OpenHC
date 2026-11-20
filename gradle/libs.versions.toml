@@ -1,0 +1,43 @@
+[versions]
+# 安卓模块统一的 SDK 版本。minSdk 23 = 安卓 6.0；无线等功能在运行时按系统版本判断是否可用。
+compileSdk = "36"
+targetSdk = "36"
+minSdk = "23"
+agp = "8.11.1"
+kotlin = "2.1.20"
+coroutines = "1.10.2"
+serialization = "1.8.1"
+coreKtx = "1.16.0"
+activityCompose = "1.10.1"
+composeBom = "2025.06.00"
+junit = "4.13.2"
+bouncycastle = "1.79"
+# 无线连接页的二维码（只用编码部分）。
+zxing = "3.5.3"
+animalsniffer = "2.0.1"
+# 核心模块要能跑在安卓 6.0 上：用安卓 API 23 的签名检查有没有误用新版 JDK 接口。
+androidApi23Signature = "6.0_r3"
+
+[libraries]
+kotlinx-coroutines-core = { group = "org.jetbrains.kotlinx", name = "kotlinx-coroutines-core", version.ref = "coroutines" }
+kotlinx-serialization-json = { group = "org.jetbrains.kotlinx", name = "kotlinx-serialization-json", version.ref = "serialization" }
+bouncycastle-prov = { group = "org.bouncycastle", name = "bcprov-jdk18on", version.ref = "bouncycastle" }
+zxing-core = { group = "com.google.zxing", name = "core", version.ref = "zxing" }
+androidx-core-ktx = { group = "androidx.core", name = "core-ktx", version.ref = "coreKtx" }
+androidx-activity-compose = { group = "androidx.activity", name = "activity-compose", version.ref = "activityCompose" }
+androidx-compose-bom = { group = "androidx.compose", name = "compose-bom", version.ref = "composeBom" }
+androidx-compose-ui = { group = "androidx.compose.ui", name = "ui" }
+androidx-compose-ui-tooling = { group = "androidx.compose.ui", name = "ui-tooling" }
+androidx-compose-ui-tooling-preview = { group = "androidx.compose.ui", name = "ui-tooling-preview" }
+androidx-compose-material3 = { group = "androidx.compose.material3", name = "material3" }
+kotlin-test = { group = "org.jetbrains.kotlin", name = "kotlin-test", version.ref = "kotlin" }
+junit = { group = "junit", name = "junit", version.ref = "junit" }
+android-api23-signature = { group = "net.sf.androidscents.signature", name = "android-api-level-23", version.ref = "androidApi23Signature" }
+
+[plugins]
+android-application = { id = "com.android.application", version.ref = "agp" }
+android-library = { id = "com.android.library", version.ref = "agp" }
+kotlin-jvm = { id = "org.jetbrains.kotlin.jvm", version.ref = "kotlin" }
+kotlin-android = { id = "org.jetbrains.kotlin.android", version.ref = "kotlin" }
+kotlin-compose = { id = "org.jetbrains.kotlin.plugin.compose", version.ref = "kotlin" }
+animalsniffer = { id = "ru.vyarus.animalsniffer", version.ref = "animalsniffer" }

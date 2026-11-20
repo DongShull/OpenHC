@@ -1,0 +1,17 @@
+<?xml version="1.0" encoding="utf-8"?>
+<resources>
+    <string name="demo_label">OpenHC 投屏演示</string>
+    <string name="demo_refresh">屏幕刷新率 %1$s Hz，按它声明 %2$d fps；现在送帧 %3$d fps</string>
+    <string name="demo_refresh_unknown">读不到</string>
+    <string name="demo_touch_none">触摸：无（十字准星画在换算出的视频坐标上，应当正好在手指下面）</string>
+    <string name="demo_touch">触摸：%1$s</string>
+    <string name="demo_resync">最近一次等关键帧：%1$s</string>
+    <string name="demo_toggle_orientation">横竖切换</string>
+    <string name="demo_cycle_fps">切换帧率</string>
+    <string name="demo_key_frame">发关键帧</string>
+    <string name="demo_pause_feed">暂停出帧</string>
+    <string name="demo_resume_feed">继续出帧</string>
+    <string name="demo_pacing_on">上屏节拍：开</string>
+    <string name="demo_pacing_off">上屏节拍：关</string>
+    <string name="demo_jitter">送帧抖动 ±%1$d ms</string>
+</resources>

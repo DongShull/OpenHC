@@ -1,0 +1,66 @@
+<?xml version="1.0" encoding="utf-8"?>
+<resources>
+    <!-- 无线连接（扫码 → 蓝牙 → 车机开热点 → 投屏） -->
+    <string name="wireless_tagline">手机扫车机屏幕上的二维码，先经蓝牙配对，再改走 WiFi 投屏，不用插线。车机要打开蓝牙。</string>
+
+    <string name="wireless_action_start">开始无线连接</string>
+    <string name="wireless_action_grant">授权</string>
+    <string name="wireless_action_app_settings">去系统设置</string>
+    <string name="wireless_action_enable_bt">打开蓝牙</string>
+    <string name="wireless_action_fill_bt">去填写蓝牙地址</string>
+
+    <string name="wireless_qr_description">无线连接二维码</string>
+    <string name="wireless_warning_manual_address">注意：系统里读不到车机蓝牙地址，用的是设置里手填的，而它看起来像是编出来的地址。手机要按二维码里的地址直接连车机蓝牙，不是车机真实地址时，扫码后不会有任何反应。请在车机「设置 → 关于 → 状态信息」里查到蓝牙地址后填进去。</string>
+
+    <!-- 阶段 -->
+    <string name="wireless_phase_idle">未开始</string>
+    <string name="wireless_phase_preparing">正在准备</string>
+    <string name="wireless_phase_scan">请用手机扫码</string>
+    <string name="wireless_phase_connecting">正在连接</string>
+    <string name="wireless_phase_projecting">投屏中</string>
+    <string name="wireless_phase_stopping">正在断开</string>
+
+    <!-- 阶段说明 -->
+    <string name="wireless_hint_idle">点「开始无线连接」，屏幕上会出现二维码，用华为手机扫码即可连接。</string>
+    <string name="wireless_hint_preparing">正在打开蓝牙监听…</string>
+    <string name="wireless_hint_scan">用华为手机扫描下面的二维码。第一次连接这台车机需要扫码配对，连接码已经包含在二维码里。</string>
+    <string name="wireless_hint_bt_handshake">手机已经通过蓝牙连上，正在握手…</string>
+    <string name="wireless_hint_waiting_auth">握手完成，等待手机发起认证…</string>
+    <string name="wireless_hint_auth_pairing">第一次连接这台车机，正在配对…</string>
+    <string name="wireless_hint_auth_trusted">正在认证（免码回连）…</string>
+    <string name="wireless_hint_wifi_handshake">手机已经从 WiFi 连上，正在握手…</string>
+    <string name="wireless_hint_device_session">正在建立设备会话…</string>
+    <string name="wireless_hint_waiting_projection">设备会话已建立，等待手机开始投屏…</string>
+    <string name="wireless_hint_negotiating_projection">正在协商投屏参数…</string>
+    <string name="wireless_hint_stopping">正在断开连接，请稍候…</string>
+
+    <!-- 开始不了的原因 -->
+    <string name="wireless_notice_bt_address">无线连接要用车机真实的蓝牙地址，但没有从系统里读到。请在「设置」里填写车机蓝牙地址（可以在手机蓝牙设置里，已配对的这台车机的详情里查到）。</string>
+    <string name="wireless_notice_bt_unsupported">这台车机没有蓝牙，用不了无线连接。</string>
+    <string name="wireless_notice_bt_off">请先打开车机蓝牙。</string>
+    <string name="wireless_notice_hotspot_unsupported">这台车机是安卓 8.0 以下，没有本地热点，用不了无线连接。请插数据线连接。</string>
+    <string name="wireless_notice_permissions">无线连接需要这些权限：%1$s。请点「授权」，在系统框里允许。</string>
+    <string name="wireless_notice_permissions_permanent">无线连接需要这些权限：%1$s。系统不再弹框了，请点「去系统设置」，在本应用的权限里打开。</string>
+    <string name="wireless_notice_precise_location">请在系统框里选「精确位置」：开热点要用精确位置权限（OpenHC 不读取位置）。</string>
+    <string name="wireless_notice_wired_active">有线连接正在进行。先在首页「有线连接」里点「停止」，再用无线连接。</string>
+    <string name="wireless_notice_wireless_active">无线连接正在进行。先在首页「无线连接」里点「停止」，再用有线连接。</string>
+    <string name="wireless_notice_ended">上次无线连接结束：%1$s</string>
+    <string name="wireless_perm_bluetooth">附近的设备（蓝牙）</string>
+    <string name="wireless_perm_nearby_wifi">附近的 WiFi 设备</string>
+    <string name="wireless_perm_location">精确位置（开热点要用）</string>
+    <string name="wireless_perm_list_separator">、</string>
+
+    <!-- 结束原因 -->
+    <string name="wireless_end_auth_closed">配对没有完成：手机断开了认证（在手机上取消了，或者二维码已经过期，请重新开始）</string>
+    <string name="wireless_end_not_trusted">手机要求免码回连，但车机上没有它的配对记录。请在手机上删除这台车机，再重新扫码配对。</string>
+    <string name="wireless_end_auth_failed">认证失败（%1$s）</string>
+    <string name="wireless_end_step_bluetooth">蓝牙连接失败（%1$s）</string>
+    <string name="wireless_end_step_auth">认证失败（%1$s）</string>
+    <string name="wireless_end_step_negotiation">和手机商量 WiFi 连接失败（%1$s）</string>
+    <string name="wireless_end_internal">内部错误（%1$s）</string>
+
+    <!-- 通知 -->
+    <string name="wireless_notification_waiting">OpenHC 无线连接</string>
+    <string name="wireless_notification_scan_text">请用手机扫描车机屏幕上的二维码</string>
+    <string name="wireless_notification_connecting">OpenHC 正在无线连接手机</string>
+</resources>

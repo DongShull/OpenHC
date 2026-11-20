@@ -1,0 +1,29 @@
+<?xml version="1.0" encoding="utf-8"?>
+<resources>
+    <!-- 设置页：声音（实验） -->
+    <string name="settings_audio">声音（实验）</string>
+    <string name="settings_audio_enabled">把手机的声音放到车机上</string>
+    <string name="settings_audio_hint">打开后手机会把音乐、导航播报等声音交给车机：导航播报走车机的导航音量，音乐走媒体音量；车机别的应用要出声时，手机这边会暂停或压低。这一版还在实验：车机放不出来时手机那边也不会响，关掉就回到手机自己出声。改动在下次连接时生效。</string>
+    <string name="settings_audio_delay">声音延后</string>
+    <string name="settings_audio_delay_min">最低</string>
+    <string name="settings_audio_delay_plus">+%1$d ms</string>
+    <string name="settings_audio_delay_hint">默认按最低缓冲放。声音比画面早时往上调：每档在最低缓冲之上多攒这么多，声音整体往后挪。下次连接生效。</string>
+    <string name="settings_audio_debug_title">调试开关（实验用）</string>
+    <string name="settings_audio_debug_hint">只用来在真机上对比声音的编码、传输和分路，平时保持默认（PCM、TCP、多声道分流开）。</string>
+    <string name="settings_audio_codec">音频编码</string>
+    <string name="settings_audio_codec_pcm">PCM（不压缩，默认：延迟更低；某台手机在 PCM 下不出声会自动改用 AAC，记在下面）</string>
+    <string name="settings_audio_codec_aac">AAC（压缩：所有手机都用 AAC）</string>
+    <string name="settings_audio_fallback_title">已自动改用 AAC 的手机</string>
+    <string name="settings_audio_fallback_empty">没有。手机在 PCM 下不出声（想放声音却一直没开声音通道，或者发来的声音不对）时会记在这里，下次连接对它改用 AAC。</string>
+    <string name="settings_audio_fallback_hint">之前在 PCM 下正常出过声的手机，要连续两次不出声才会记进来。点「恢复 PCM」后下次连接再试 PCM。</string>
+    <string name="settings_audio_fallback_item">%1$s（编号 %2$s）：%3$s，%4$s 记下</string>
+    <string name="settings_audio_fallback_unnamed">没报名字的手机</string>
+    <string name="settings_audio_fallback_reset">恢复 PCM</string>
+    <string name="settings_audio_multi_bus">多声道分流（默认开）</string>
+    <string name="settings_audio_multi_bus_hint">开着时向手机声明多音频总线：导航播报单独一路，放到车机的导航声道，音乐照常走媒体声道。关掉就回到所有声音混在一起、都走媒体音量，用来对比。</string>
+    <string name="settings_audio_transport">传输方式</string>
+    <string name="settings_audio_transport_tcp">TCP（默认）</string>
+    <string name="settings_audio_low_latency">低延迟输出（默认开）</string>
+    <string name="settings_audio_low_latency_hint">安卓 8.0 起向系统要低延迟的输出路径；关掉就走普通的媒体输出，用来对比延迟。更低的安卓版本上没有这一项，开关不起作用。</string>
+    <string name="settings_audio_transport_udp">UDP（只看手机的反应：手机侧已知建不起发送端，车机这边也不收 UDP 包）</string>
+</resources>
