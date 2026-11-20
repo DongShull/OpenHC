@@ -2,9 +2,9 @@
 
 **开源的 HiCar 车机端。** 装在安卓车机上，华为手机用数据线或无线投屏到车机屏幕。
 
-[报告问题](https://github.com/GGBondLab/OpenHC/issues) · [从源码构建](#构建)
+[下载安装包](https://github.com/GGBondLab/OpenHC/releases/latest) · [更新记录](CHANGELOG.md) · [报告问题](https://github.com/GGBondLab/OpenHC/issues) · [从源码构建](#构建)
 
-## 0.0.1 — 早期开发版
+## 0.1.0 — 预览版
 
 装在**车机**上，不是手机上。不需要 root、ADB、系统签名，不依赖车机自带的 HiCar，不用注册账号，不连任何服务器。
 车机要允许安装 APK。
@@ -25,13 +25,13 @@
 
 ## 使用
 
-1. 车机安装 OpenHC。
+1. 车机安装 OpenHC（[下载](https://github.com/GGBondLab/OpenHC/releases/latest)）。装过自己编译的调试包的，先卸载再装，签名不同不能覆盖。
 2. **有线**：首页点「开始」，手机插车机 USB 口，在手机上点「连接」，第一次输入车机显示的连接码。
 3. **无线**：首页「无线连接」点「开始」，手机扫车机上的二维码。之后手机靠近车机会弹出「发现车机」。
 
 ## 状态
 
-早期开发，还没发布安装包。有线、无线投屏已在一台安卓 10 车机和一部鸿蒙系统的华为手机上验证。
+第一个预览版。有线、无线投屏已在一台 BYD 安卓 10 车机和一部鸿蒙系统的华为手机上验证，其他车机和手机还没测过，欢迎反馈。
 
 已知限制：
 
@@ -62,7 +62,7 @@
 ## 致谢
 
 - **[DiPlay](https://github.com/shihabal3amri/DiPlay)**（作者 [shihabal3amri](https://github.com/shihabal3amri)）：安卓车机上的开源 CarPlay 接收端。
-  OpenHC 的很多思路和做法参考了它，例如全屏显示的处理方式和这份说明的组织方式。感谢作者的开源分享。
+  OpenHC 的很多思路和做法参考了它。感谢作者的开源分享。
 - **OpenHarmony security_device_auth**：配对认证部分的代码移植自它（Apache-2.0）。
   用到的其他第三方组件和许可见 [第三方声明](docs/THIRD_PARTY_NOTICES.md)。
 
