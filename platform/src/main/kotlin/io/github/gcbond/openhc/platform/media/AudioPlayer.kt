@@ -18,6 +18,7 @@ import java.nio.ByteBuffer
  * - **缓冲**（参数见 [AudioTuning]）：先攒够起播门槛再开始放；队列长期高于削峰目标就逐块丢最旧的，突发积压超过上限
  *   一次丢回目标；输出快放空（欠载，包括手机暂停播放）时暂停，重新攒够再放。策略在 [AudioJitterQueue]。
  * - **输出**：按 [usage] 设音轨的用途（媒体、导航、提示与语音、通话，见 [AudioUsage.attributes]），音量跟系统对应的那一档走；
+ *   设置里给媒体、导航指定了声道号的按号建（[AudioTuning.streamFor]，建音轨见 [PcmTrack]）；
  *   安卓 8.0 起按 [AudioTuning.lowLatency] 向系统要低延迟的输出路径。本类不申请音频焦点（见 [AudioFocusController]），
  *   失去焦点时由调用方用 [setVolume] 压低或静音。
  * - **延迟**：播放线程每隔一会儿算一次 [latency]（队列、解码、音轨已写未播、硬件四段），日志用。
@@ -58,7 +59,7 @@ class AudioPlayer(
             val capacityFrames: Int?,
             val lowLatencyRequested: Boolean,
             val performanceMode: Int?,
-            /** 音轨属性的说明（导航那一路走了哪种属性），普通情况为空。 */
+            /** 这一路实际走了哪条路（指定的声道号、导航那一路的属性，见 [PcmTrack.Built.route]），普通情况为空。 */
             val attributesNote: String = "",
         ) : Event() {
             private fun millis(frames: Long) = AudioTuning.millisFor(sampleRate, frames)
@@ -280,35 +281,13 @@ class AudioPlayer(
             return null
         }
         val requested = tuning.trackBytes(sampleRate, frameBytes, minimum)
-        var lowLatency = false
-        val trackAttrs = usage.trackAttributes()
-        val created = try {
-            val builder = AudioTrack.Builder()
-                .setAudioAttributes(trackAttrs.attributes)
-                .setAudioFormat(
-                    AudioFormat.Builder()
-                        .setSampleRate(sampleRate)
-                        .setChannelMask(mask)
-                        .setEncoding(AudioFormat.ENCODING_PCM_16BIT)
-                        .build(),
-                )
-                .setBufferSizeInBytes(requested)
-                .setTransferMode(AudioTrack.MODE_STREAM)
-            // 安卓 8.0 以下没有性能模式，照常建（走系统默认的输出路径）。
-            if (tuning.lowLatency && Build.VERSION.SDK_INT >= Build.VERSION_CODES.O) {
-                builder.setPerformanceMode(AudioTrack.PERFORMANCE_MODE_LOW_LATENCY)
-                lowLatency = true
-            }
-            builder.build()
+        val built = try {
+            PcmTrack.build(usage, tuning.streamFor(usage), sampleRate, mask, requested, tuning.lowLatency)
         } catch (e: Exception) {
             fatal("建不起 AudioTrack：${e.javaClass.simpleName}：${e.message}")
             return null
         }
-        if (created.state != AudioTrack.STATE_INITIALIZED) {
-            created.release()
-            fatal("AudioTrack 没有初始化成功")
-            return null
-        }
+        val created = built.track
         track = created
         trackRate = sampleRate
         trackChannels = channels
@@ -325,9 +304,9 @@ class AudioPlayer(
                 requestedBytes = requested,
                 bufferFrames = created.bufferSizeInFrames,
                 capacityFrames = if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.N) created.bufferCapacityInFrames else null,
-                lowLatencyRequested = lowLatency,
+                lowLatencyRequested = built.lowLatencyRequested,
                 performanceMode = if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.O) created.performanceMode else null,
-                attributesNote = trackAttrs.note,
+                attributesNote = built.route,
             ),
         )
         return created

@@ -3,11 +3,22 @@
     <!-- 设置页：声音（实验） -->
     <string name="settings_audio">声音（实验）</string>
     <string name="settings_audio_enabled">把手机的声音放到车机上</string>
-    <string name="settings_audio_hint">打开后手机会把音乐、导航播报等声音交给车机：导航播报走车机的导航音量，音乐走媒体音量；车机别的应用要出声时，手机这边会暂停或压低。这一版还在实验：车机放不出来时手机那边也不会响，关掉就回到手机自己出声。改动在下次连接时生效。</string>
+    <string name="settings_audio_hint">打开后手机会把音乐、导航播报等声音交给车机，导航播报和音乐分开放（各走哪个声道见下面）；车机别的应用要出声时，手机这边会暂停或压低。这一版还在实验：车机放不出来时手机那边也不会响，关掉就回到手机自己出声。改动在下次连接时生效。</string>
     <string name="settings_audio_delay">声音延后</string>
     <string name="settings_audio_delay_min">最低</string>
     <string name="settings_audio_delay_plus">+%1$d ms</string>
     <string name="settings_audio_delay_hint">默认按最低缓冲放。声音比画面早时往上调：每档在最低缓冲之上多攒这么多，声音整体往后挪。下次连接生效。</string>
+    <string name="settings_audio_navigation_stream">导航声道</string>
+    <string name="settings_audio_navigation_stream_hint">默认「自动」。导航和音乐音量连在一起时，选车机的导航声道号（编号同 DiPlay），点「试听」确认。</string>
+    <string name="settings_audio_media_stream">音乐声道</string>
+    <string name="settings_audio_media_stream_hint">一般留「自动」；指定声道号后音乐不走低延迟输出。</string>
+    <string name="settings_audio_stream_auto">自动</string>
+    <string name="settings_audio_preview">试听</string>
+    <string name="settings_audio_preview_playing">试听中</string>
+    <string name="settings_audio_preview_auto">已按「自动」放了一段提示音。</string>
+    <string name="settings_audio_preview_stream">已用 %1$d 号放了一段提示音。</string>
+    <string name="settings_audio_preview_rejected">车机不认 %1$d 号，按「自动」放的。</string>
+    <string name="settings_audio_preview_failed">试听失败：%1$s</string>
     <string name="settings_audio_debug_title">调试开关（实验用）</string>
     <string name="settings_audio_debug_hint">只用来在真机上对比声音的编码、传输和分路，平时保持默认（PCM、TCP、多声道分流开）。</string>
     <string name="settings_audio_codec">音频编码</string>

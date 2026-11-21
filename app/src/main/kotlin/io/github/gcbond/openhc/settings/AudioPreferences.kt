@@ -8,6 +8,7 @@ import io.github.gcbond.openhc.core.dmsdp.audio.MicProfile
 import io.github.gcbond.openhc.core.dmsdp.audio.PcmVerdict
 import io.github.gcbond.openhc.core.session.AudioSettings
 import io.github.gcbond.openhc.core.session.MicSettings
+import io.github.gcbond.openhc.platform.media.AudioStreamChoice
 import io.github.gcbond.openhc.platform.media.AudioTuning
 
 /**
@@ -52,6 +53,16 @@ class AudioPreferences(context: Context) {
     var lowLatency: Boolean
         get() = prefs.getBoolean(KEY_LOW_LATENCY, true)
         set(value) = prefs.edit { putBoolean(KEY_LOW_LATENCY, value) }
+
+    /** 音乐（媒体那一路）放到车机的哪个声道：自动（默认）或 1～20 号，见 [AudioStreamChoice]。 */
+    var mediaStream: Int
+        get() = AudioStreamChoice.normalize(prefs.getInt(KEY_MEDIA_STREAM, AudioStreamChoice.AUTO))
+        set(value) = prefs.edit { putInt(KEY_MEDIA_STREAM, AudioStreamChoice.normalize(value)) }
+
+    /** 导航播报那一路放到车机的哪个声道：自动（默认）或 1～20 号，见 [AudioStreamChoice]。 */
+    var navigationStream: Int
+        get() = AudioStreamChoice.normalize(prefs.getInt(KEY_NAVIGATION_STREAM, AudioStreamChoice.AUTO))
+        set(value) = prefs.edit { putInt(KEY_NAVIGATION_STREAM, AudioStreamChoice.normalize(value)) }
 
     /** 车机麦克风交给手机（打电话、语音助手）。默认开；没有录音权限时照样不声明。 */
     var micEnabled: Boolean
@@ -100,8 +111,13 @@ class AudioPreferences(context: Context) {
         null
     }
 
-    /** 下一次连接的播放缓冲参数：默认最低，加上声音延后。 */
-    fun playbackTuning(): AudioTuning = AudioTuning(extraDelayMillis = delayMillis, lowLatency = lowLatency)
+    /** 下一次连接的播放参数：缓冲默认最低，加上声音延后；音乐、导航各放到哪个声道。 */
+    fun playbackTuning(): AudioTuning = AudioTuning(
+        extraDelayMillis = delayMillis,
+        lowLatency = lowLatency,
+        mediaStream = mediaStream,
+        navigationStream = navigationStream,
+    )
 
     companion object {
         /** 设置页给的「声音延后」档位（毫秒），0 是最低。 */
@@ -117,6 +133,8 @@ class AudioPreferences(context: Context) {
         private const val KEY_MULTI_BUS = "debug_multi_bus"
         private const val KEY_DELAY = "delay_millis"
         private const val KEY_LOW_LATENCY = "debug_low_latency"
+        private const val KEY_MEDIA_STREAM = "media_stream"
+        private const val KEY_NAVIGATION_STREAM = "navigation_stream"
         private const val KEY_MIC_ENABLED = "mic_enabled"
         private const val KEY_MIC_PROFILE = "debug_mic_profile"
         private const val KEY_MIC_ASKED = "mic_permission_asked"

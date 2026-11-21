@@ -6,6 +6,7 @@ package io.github.gcbond.openhc.platform.media
  * 默认按有线投屏取低值：攒约 80ms 起播，AudioTrack 自己的缓冲约 40ms（不小于系统最小值），队列长期高于 100ms 就削峰。
  * （起播 60ms、削峰 80ms 在真机上会偶尔放空，所以各加了 20ms。）
  * 「声音延后」[extraDelayMillis] 加在起播门槛、削峰目标和硬上限上：在最低配置之上多攒这么多，声音整体往后挪。
+ * 另外带着媒体、导航两路各放到哪个声道（[AudioStreamChoice]，默认自动），建音轨时用（[streamFor]）。
  */
 class AudioTuning(
     /** 攒够这么多才开始放（欠载后重新起播也用它）。 */
@@ -28,6 +29,10 @@ class AudioTuning(
     val extraDelayMillis: Int = 0,
     /** 安卓 8.0 起向系统要低延迟的输出路径（更低版本没有这个选项，照常建）。 */
     val lowLatency: Boolean = true,
+    /** 媒体那一路放到哪个声道（[AudioStreamChoice]）。 */
+    val mediaStream: Int = AudioStreamChoice.AUTO,
+    /** 导航播报那一路放到哪个声道（[AudioStreamChoice]）。 */
+    val navigationStream: Int = AudioStreamChoice.AUTO,
 ) {
     init {
         require(startMillis > 0 && startMillis <= targetMillis && targetMillis <= maxMillis) { "要求 0 < 起播 ≤ 削峰目标 ≤ 上限" }
@@ -35,6 +40,15 @@ class AudioTuning(
         require(trimStepMillis > 0) { "每次削峰的时长必须为正" }
         require(trackMillis > 0) { "音轨缓冲必须为正" }
         require(extraDelayMillis in 0..MAX_EXTRA_DELAY_MILLIS) { "声音延后超出范围: $extraDelayMillis" }
+        require(AudioStreamChoice.normalize(mediaStream) == mediaStream) { "音乐声道超出范围: $mediaStream" }
+        require(AudioStreamChoice.normalize(navigationStream) == navigationStream) { "导航声道超出范围: $navigationStream" }
+    }
+
+    /** 这一路放到哪个声道：只有媒体和导航能指定，提示音、通话、铃声一律自动。 */
+    fun streamFor(usage: AudioUsage): Int = when (usage) {
+        AudioUsage.MEDIA -> mediaStream
+        AudioUsage.NAVIGATION -> navigationStream
+        AudioUsage.ASSISTANT, AudioUsage.CALL, AudioUsage.RINGTONE -> AudioStreamChoice.AUTO
     }
 
     fun startFrames(sampleRate: Int): Int = framesFor(sampleRate, startMillis + extraDelayMillis)
@@ -51,7 +65,8 @@ class AudioTuning(
 
     override fun toString() = "起播 ${startMillis + extraDelayMillis}ms、削峰目标 ${targetMillis + extraDelayMillis}ms、" +
         "上限 ${maxMillis + extraDelayMillis}ms、音轨约 ${trackMillis}ms、声音延后 +${extraDelayMillis}ms、" +
-        "低延迟输出${if (lowLatency) "开" else "关"}"
+        "低延迟输出${if (lowLatency) "开" else "关"}、音乐声道 ${AudioStreamChoice.label(mediaStream)}、" +
+        "导航声道 ${AudioStreamChoice.label(navigationStream)}"
 
     companion object {
         const val MAX_EXTRA_DELAY_MILLIS = 1_000
