@@ -502,7 +502,7 @@ class WirelessController(
         }
 
         cancelAutoRetry()
-        val directGroup = DebugOverrides.wifiDirect && Build.VERSION.SDK_INT >= Build.VERSION_CODES.Q
+        val directGroup = wirelessPrefs.usesWifiDirect
         val current = Attempt(
             ++attemptCounter, kind, config, adapter, identity.host, beacon, bluetoothTrigger, reconnect, resumeWiredAfter, directGroup,
         )
@@ -514,12 +514,12 @@ class WirelessController(
             "第 ${current.id} 次无线连接（${when (kind) { Kind.AUTO -> "等已配对的手机回连"; Kind.RECONNECT -> "车机主动回连"; Kind.MANUAL -> "用户开始" }}）：" +
                 "蓝牙地址来源 ${bluetooth.source}，deviceId ${config.deviceId.take(4)}…，" +
                 "画布 ${display.width}x${display.height}@${display.fps} dpi ${display.dpi}，系统 ${Build.VERSION.SDK_INT}，$wifi，" +
-                "已配对手机 ${trustStore.peerCount} 台，声音 ${audio ?: "关"}，手机加入的网络 ${if (directGroup) "WiFi 直连组（调试开关）" else "本地热点"}，" +
+                "已配对手机 ${trustStore.peerCount} 台，声音 ${audio ?: "关"}，手机加入的网络 ${if (directGroup) "WiFi 直连组（试验）" else "本地热点"}，" +
                 "广播 ${beacon?.let { "开（重新发布 ${it.republishMillis / 1000} 秒，GATT ${if (it.gatt) "开" else "关"}${if (it.declareRandomAddress) "，声明随机地址" else ""}）" } ?: "不发"}",
         )
         Log.i(TAG, "第 ${current.id} 次无线连接的清晰度：${clarity.key}，声明码率 ${VideoClarity.describe(config.display.bitrate)}")
         setAutoHold(null)
-        apply(WirelessSignal.AttemptStarted(current.id, addressMismatch, autoReconnect = kind == Kind.AUTO))
+        apply(WirelessSignal.AttemptStarted(current.id, addressMismatch, autoReconnect = kind == Kind.AUTO, direct = directGroup))
         current.runner.start()
         watchTermination(current)
     }
@@ -859,7 +859,7 @@ class WirelessController(
         reconnect: ReconnectTarget?,
         /** 有线是为这次让出来的：结束后让有线回到等插线。 */
         val resumeWiredAfter: Boolean = false,
-        /** 这次不开本地热点，改建 WiFi 直连组（调试开关，安卓 10 起）。 */
+        /** 这次不开本地热点，改建 WiFi 直连组（设置里「无线方式」选了直连，安卓 10 起）。 */
         val directGroup: Boolean = false,
     ) {
         /** 投屏开始过。 */
@@ -899,7 +899,7 @@ class WirelessController(
                 wifiRestore.onHotspotRequested()
                 LocalHotspotOwner.get(app).create(events) { Log.i(TAG, "[$id] 热点：$it") }
             },
-            // 直连（调试开关）：不开热点、不动车机自己的 WiFi，所以也不排「恢复车机 WiFi」。
+            // 直连：不开热点、不动车机自己的 WiFi，所以也不排「恢复车机 WiFi」。
             startDirect = if (directGroup) {
                 { events -> WifiDirectGroupOwner(app, events) { Log.i(TAG, "[$id] 直连：$it") } }
             } else {

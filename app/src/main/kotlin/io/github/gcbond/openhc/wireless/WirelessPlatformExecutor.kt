@@ -71,7 +71,7 @@ internal class WirelessPlatformExecutor(
     /** 车机主动连手机（车机主动回连）：[channel] 不为 null 时先按通道号直连，否则按 [uuid] 查 SDP。 */
     private val dialRfcomm: (address: String, uuid: UUID, channel: Int?, events: RfcommClient.Events) -> RfcommEndpoint,
     private val startHotspot: (LocalHotspotEvents) -> LocalHotspotHandle,
-    /** 不为 null 时会话要的网络改建 WiFi 直连组（调试开关）。 */
+    /** 不为 null 时会话要的网络改建 WiFi 直连组（设置里「无线方式」选了直连）。 */
     private val startDirect: ((DirectGroupEvents) -> LocalHotspotHandle)? = null,
     private val results: WirelessResults,
     private val onEvent: (WirelessEvent) -> Unit,
@@ -299,7 +299,7 @@ internal class WirelessPlatformExecutor(
         handle.stop()
     }
 
-    /** 建直连组（调试开关）：组名、口令、频率都由本机定，建好后交回系统读回的实际值；连接串用直连格式。 */
+    /** 建直连组：组名、口令、频率都由本机定，建好后交回系统读回的实际值；连接串用直连格式。 */
     private fun startDirectGroup(id: Int, factory: (DirectGroupEvents) -> LocalHotspotHandle) {
         val events = object : DirectGroupEvents {
             override fun onReady(group: DirectGroup) = ifHotspot(id) {

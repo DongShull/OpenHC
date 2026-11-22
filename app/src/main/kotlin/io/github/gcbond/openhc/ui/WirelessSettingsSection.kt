@@ -28,11 +28,19 @@ internal class WirelessSettingsState(context: Context) {
         private set
     var connectOnBluetooth by mutableStateOf(prefs.connectOnBluetooth)
         private set
+    var wifiDirect by mutableStateOf(prefs.wifiDirect)
+        private set
 
     fun changeWiredOnly(value: Boolean) {
         wiredOnly = value
         prefs.wiredOnly = value
         controller?.onWiredOnlyChanged()
+    }
+
+    /** 下一次无线连接生效，正在进行的连接照旧。 */
+    fun changeWifiDirect(value: Boolean) {
+        wifiDirect = value
+        prefs.wifiDirect = value
     }
 
     fun changeConnectOnBluetooth(value: Boolean) {
@@ -72,3 +80,15 @@ internal fun ConnectOnBluetoothSetting(state: WirelessSettingsState) {
     )
 }
 
+/** 无线方式（默认车机开热点）：「5 GHz 直连」是试验功能，安卓 10 起才有，更早的系统不显示这一行。 */
+@Composable
+internal fun WirelessModeSetting(state: WirelessSettingsState) {
+    if (!WirelessPreferences.wifiDirectSupported) return
+    ChoiceRow(
+        title = stringResource(R.string.settings_wireless_mode),
+        options = listOf(stringResource(R.string.settings_wireless_mode_hotspot), stringResource(R.string.settings_wireless_mode_direct)),
+        selected = if (state.wifiDirect) 1 else 0,
+        description = stringResource(R.string.settings_wireless_mode_hint),
+        note = if (state.wifiDirect) stringResource(R.string.settings_wireless_mode_direct_note) else null,
+    ) { state.changeWifiDirect(it == 1) }
+}

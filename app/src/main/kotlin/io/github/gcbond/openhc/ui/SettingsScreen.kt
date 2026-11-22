@@ -132,6 +132,7 @@ private fun SettingsRightColumn(
 ) {
     SettingsGroup(stringResource(R.string.settings_group_connection)) {
         WiredOnlySetting(wireless)
+        WirelessModeSetting(wireless)
         BluetoothAddressSection(settings, systemBluetoothAddress)
         LePairingSetting()
         UsbAutoConnectSettingsSection()

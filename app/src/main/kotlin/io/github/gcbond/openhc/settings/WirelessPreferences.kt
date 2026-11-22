@@ -1,6 +1,7 @@
 package io.github.gcbond.openhc.settings
 
 import android.content.Context
+import android.os.Build
 import androidx.core.content.edit
 
 /**
@@ -25,6 +26,17 @@ class WirelessPreferences(context: Context) {
     var connectOnBluetooth: Boolean
         get() = prefs.getBoolean(KEY_CONNECT_ON_BLUETOOTH, true)
         set(value) = prefs.edit { putBoolean(KEY_CONNECT_ON_BLUETOOTH, value) }
+
+    /**
+     * 无线方式选「WiFi 直连」（默认关，即车机开热点；试验）：手机认证通过后车机建 WiFi 直连组让手机加入、不开本地热点，
+     * 优先 5 GHz。下一次无线连接生效；系统低于安卓 10 时不起作用（见 [usesWifiDirect]）。
+     */
+    var wifiDirect: Boolean
+        get() = prefs.getBoolean(KEY_WIFI_DIRECT, false)
+        set(value) = prefs.edit { putBoolean(KEY_WIFI_DIRECT, value) }
+
+    /** 下一次无线连接真的走 WiFi 直连：选了直连，而且系统支持（[wifiDirectSupported]）。 */
+    val usesWifiDirect: Boolean get() = wifiDirect && wifiDirectSupported
 
     /** 用无线连成功过（投屏开始过）的手机的蓝牙地址（大写），最近连成功的在最后。「自动连接手机」只拨这些手机。 */
     val knownPhoneList: List<String>
@@ -83,12 +95,16 @@ class WirelessPreferences(context: Context) {
 
         private const val FILE = "openhc-wireless"
         private const val KEY_WIRED_ONLY = "wired_only"
+        private const val KEY_WIFI_DIRECT = "wifi_direct"
         private const val KEY_CONNECT_ON_BLUETOOTH = "connect_on_bluetooth"
         private const val KEY_AUTO_RECONNECT = "auto_reconnect"
         private const val KEY_KNOWN_PHONES = "known_phones"
 
         /** 「连成功过的手机」最多记几台。 */
         const val MAX_KNOWN_PHONES = 5
+
+        /** 系统支持「WiFi 直连」这种无线方式：要按指定频率建组，安卓 10 起才有对应的接口。 */
+        val wifiDirectSupported: Boolean get() = Build.VERSION.SDK_INT >= Build.VERSION_CODES.Q
         private const val KEY_REPUBLISH_SECONDS = "debug_beacon_republish_seconds"
         private const val KEY_RANDOM_ADDRESS = "debug_beacon_random_address"
         private const val KEY_GATT = "debug_beacon_gatt"

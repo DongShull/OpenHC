@@ -125,6 +125,11 @@ internal object DiagnosticsExport {
             "连接参数" to if (IdentityLoader.load(app) is IdentityLoader.Result.Loaded) "已带" else "缺",
             "系统读得到车机蓝牙地址" to yesNo(DeviceInfo.systemBluetoothAddress() != null),
             "只用数据线连接" to yesNo(wireless.wiredOnly),
+            "无线方式" to when {
+                wireless.usesWifiDirect -> "WiFi 直连（试验）"
+                wireless.wifiDirect -> "选了 WiFi 直连，但系统低于安卓 10，实际用热点"
+                else -> "车机开热点"
+            },
             "自动连接手机" to yesNo(wireless.connectOnBluetooth),
             "用无线连成功过的手机" to "${wireless.knownPhones.size} 台",
             "插线时不再弹窗" to yesNo(UsbAutoConnect.isEnabled(app)),

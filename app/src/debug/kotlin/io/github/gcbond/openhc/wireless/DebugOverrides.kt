@@ -10,12 +10,6 @@ internal object DebugOverrides {
      */
     val forceRfcommSdp: Boolean get() = property("debug.openhc.rfcomm_sdp") == "1"
 
-    /**
-     * `adb shell setprop debug.openhc.wifi_direct 1`：无线连接时车机不开本地热点，改建 WiFi 直连组、自己当组主
-     * （安卓 10 起；优先 5 GHz，避开和蓝牙挤在 2.4 GHz）。下一次连接生效，设回 0 或清空恢复热点。
-     */
-    val wifiDirect: Boolean get() = property("debug.openhc.wifi_direct") == "1"
-
     private fun property(key: String): String = try {
         Class.forName("android.os.SystemProperties").getMethod("get", String::class.java).invoke(null, key) as? String ?: ""
     } catch (e: ReflectiveOperationException) {
