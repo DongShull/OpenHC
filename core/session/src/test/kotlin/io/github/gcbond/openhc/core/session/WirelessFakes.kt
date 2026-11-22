@@ -61,6 +61,9 @@ internal object WirelessSynthetic {
  * `nego` 数据通道协商（能力见 [capability]），`nego-ble` 要的不是 WiFi，`confirm` 确认协商（频率照抄车机给的），
  * `refuse` 手机忙，`mac` 报 MAC，`busy` 回忙。
  */
+/** 假手机在主动回连应答里带的服务 UUID（和默认的 FE36 不同，便于核对车机用的是哪个）。 */
+internal val RECONNECT_UUID: java.util.UUID = java.util.UUID.fromString("0000fe36-0000-1000-8000-00805f9b0001")
+
 internal class FakeBluetoothNearby(private val calls: MutableList<String>) : BluetoothNearbyLayer {
     override var nextTickAtMillis: Long? = null
     var capability: WifiCapability = WirelessSynthetic.capability()
@@ -79,6 +82,11 @@ internal class FakeBluetoothNearby(private val calls: MutableList<String>) : Blu
             "refuse" -> listOf(BluetoothOutput.DataChannelResult(false, 2, null))
             "mac" -> listOf(BluetoothOutput.PeerMac(WirelessSynthetic.PHONE_MAC))
             "busy" -> listOf(BluetoothOutput.PeerBusy)
+            // 车机主动回连：握手完成（手机不请求开子通道），手机对车机请求的应答。
+            "hs" -> listOf(BluetoothOutput.HandshakeCompleted(true))
+            "cmd4-ok" -> listOf(BluetoothOutput.AuthChannelReady(8, null))
+            "cmd4-uuid" -> listOf(BluetoothOutput.AuthChannelReady(9, RECONNECT_UUID))
+            "cmd4-no" -> listOf(BluetoothOutput.AuthChannelRejected(1))
             else -> emptyList()
         }
     }
@@ -97,6 +105,11 @@ internal class FakeBluetoothNearby(private val calls: MutableList<String>) : Blu
     }
 
     override fun onTick(nowMillis: Long) = onTickHandler(nowMillis)
+
+    override fun requestAuthChannel(tag: ByteArray): List<BluetoothOutput> {
+        calls += "bt.requestAuthChannel(${tag.toString(Charsets.UTF_8)})"
+        return listOf(BluetoothOutput.Send("authreq".bytes()))
+    }
 
     override fun rfcommUuid(request: BluetoothOutput.SocketRequest): UUID = uuid
 
@@ -154,8 +167,8 @@ internal class FakeWirelessLayers : WirelessLayers {
         }
     }
 
-    override fun bluetoothNearby(): BluetoothNearbyLayer {
-        calls += "bt.create"
+    override fun bluetoothNearby(initiator: Boolean): BluetoothNearbyLayer {
+        calls += if (initiator) "bt.create(发起方)" else "bt.create"
         return bluetooth
     }
 

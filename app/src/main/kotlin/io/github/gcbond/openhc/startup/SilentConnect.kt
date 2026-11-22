@@ -9,7 +9,6 @@ import android.util.Log
 import io.github.gcbond.openhc.IdentityLoader
 import io.github.gcbond.openhc.OpenHcApp
 import io.github.gcbond.openhc.platform.net.VpnConsent
-import io.github.gcbond.openhc.settings.WirelessPreferences
 import io.github.gcbond.openhc.wireless.WirelessNetworkPlan
 import io.github.gcbond.openhc.wireless.WirelessUiState
 
@@ -92,7 +91,6 @@ internal class SilentBootWatch(
             wiredBlocked = !wiredState.active && wiredState.notice != null && !wired.wantsForeground,
             wirelessWaiting = wireless.wantsForeground && wireless.serviceInForeground,
             wirelessHold = wireless.state.value.autoHold,
-            connectOnBluetooth = WirelessPreferences(app).connectOnBluetooth,
         )
     }
 

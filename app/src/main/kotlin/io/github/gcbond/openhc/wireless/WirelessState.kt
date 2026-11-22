@@ -37,6 +37,9 @@ enum class WirelessStep {
     BLUETOOTH_HANDSHAKE,
     WAITING_AUTH,
 
+    /** 车机主动回连：手机暂时没同意，多半在手机上弹了确认框（例如手机开着热点），等用户在手机上点。 */
+    CONFIRM_ON_PHONE,
+
     /** 首次配对：口令是二维码里带的连接码，手机自动带上。 */
     AUTH_PAIRING,
 
@@ -269,6 +272,7 @@ object WirelessReducer {
             is WirelessEvent.PhoneBluetoothConnected ->
                 connecting(state, WirelessStep.BLUETOOTH_HANDSHAKE).copy(qrCode = null, phoneConnected = true)
             is WirelessEvent.BluetoothHandshakeCompleted -> connecting(state, WirelessStep.WAITING_AUTH)
+            is WirelessEvent.ReconnectAwaitingPhone -> connecting(state, WirelessStep.CONFIRM_ON_PHONE)
             // 热点开好了才会回协商应答：协商完直接发网络信息。
             is WirelessEvent.DataChannelNegotiated -> connecting(state, WirelessStep.SENDING_NETWORK)
             // 热点在握手、认证途中或协商之前开好，不打断当前这一步。

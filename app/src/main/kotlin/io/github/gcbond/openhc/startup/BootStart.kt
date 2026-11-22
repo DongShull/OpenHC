@@ -93,17 +93,16 @@ internal object BootStart {
         phonePlugged = phonePlugged(context),
         usbAutoConnect = UsbAutoConnect.isEnabled(context),
         wirelessWanted = wirelessWanted(context),
-        connectOnBluetooth = WirelessPreferences(context).connectOnBluetooth,
     )
 
-    /** 开机后无线要不要等手机回连（只看设置）。 */
+    /** 开机后无线要不要自动连手机（只看设置）。 */
     fun wirelessWanted(context: Context): Boolean {
         val wireless = WirelessPreferences(context)
-        return BootStartPolicy.wirelessWanted(wireless.wiredOnly, wireless.autoReconnect, wireless.connectOnBluetooth)
+        return BootStartPolicy.wirelessWanted(wireless.wiredOnly, wireless.connectOnBluetooth)
     }
 
     /** 车机上插着能走有线的华为 / 荣耀手机（普通状态，或开着 USB 调试、等用户关掉）。 */
-    private fun phonePlugged(context: Context): Boolean {
+    fun phonePlugged(context: Context): Boolean {
         val usb = context.getSystemService(Context.USB_SERVICE) as? UsbManager ?: return false
         return try {
             usb.deviceList.values.any { UsbDescriber.phoneMode(it) in PLUGGED_MODES }

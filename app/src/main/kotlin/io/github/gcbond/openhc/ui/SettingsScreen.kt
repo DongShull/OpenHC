@@ -134,11 +134,10 @@ private fun SettingsRightColumn(
         WiredOnlySetting(wireless)
         BluetoothAddressSection(settings, systemBluetoothAddress)
         LePairingSetting()
-        AutoReconnectSetting(wireless)
         UsbAutoConnectSettingsSection()
         RestoreWifiSetting()
     }
-    BootStartSettingsSection(extraRows = { ConnectOnBluetoothSetting(wireless) })
+    BootStartSettingsSection(autoConnect = wireless.connectOnBluetooth && !wireless.wiredOnly) { ConnectOnBluetoothSetting(wireless) }
     AudioSettingsSection()
 }
 

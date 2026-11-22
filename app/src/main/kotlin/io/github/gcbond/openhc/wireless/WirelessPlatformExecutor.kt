@@ -7,6 +7,7 @@ import io.github.gcbond.openhc.core.session.WirelessChannel
 import io.github.gcbond.openhc.core.session.WirelessEvent
 import io.github.gcbond.openhc.core.session.WirelessOutput
 import io.github.gcbond.openhc.core.session.WirelessRunnerBridge
+import io.github.gcbond.openhc.platform.bluetooth.RfcommClient
 import io.github.gcbond.openhc.platform.bluetooth.RfcommEndpoint
 import io.github.gcbond.openhc.platform.bluetooth.RfcommEvents
 import io.github.gcbond.openhc.platform.wifi.HotspotMacSource
@@ -20,6 +21,9 @@ import java.util.UUID
 internal interface WirelessResults {
     fun onListening(id: Int, port: Int)
     fun onAccepted(id: Int, remote: String)
+
+    /** 车机主动连手机的蓝牙连接连上了（车机主动回连）。 */
+    fun onConnected(id: Int)
     fun onData(id: Int, data: ByteArray)
     fun onClosed(id: Int)
     fun onIoError(id: Int, message: String)
@@ -34,6 +38,8 @@ internal class RunnerResults : WirelessResults {
     override fun onListening(id: Int, port: Int) = runner.submit { now -> bridge.onListening(id, port, now) }
 
     override fun onAccepted(id: Int, remote: String) = runner.submit { now -> bridge.onAccepted(id, remote, now) }
+
+    override fun onConnected(id: Int) = runner.submit { now -> bridge.onConnected(id, now) }
 
     override fun onData(id: Int, data: ByteArray) = runner.submit { now -> bridge.onData(id, data, 0, data.size, now) }
 
@@ -58,6 +64,8 @@ internal class RunnerResults : WirelessResults {
  */
 internal class WirelessPlatformExecutor(
     private val openRfcomm: (serviceName: String, uuid: UUID, events: RfcommEvents) -> RfcommEndpoint,
+    /** 车机主动连手机（车机主动回连）：[channel] 不为 null 时先按通道号直连，否则按 [uuid] 查 SDP。 */
+    private val dialRfcomm: (address: String, uuid: UUID, channel: Int?, events: RfcommClient.Events) -> RfcommEndpoint,
     private val startHotspot: (LocalHotspotEvents) -> LocalHotspotHandle,
     private val results: WirelessResults,
     private val onEvent: (WirelessEvent) -> Unit,
@@ -79,6 +87,7 @@ internal class WirelessPlatformExecutor(
     fun execute(output: WirelessOutput) {
         when (output) {
             is WirelessAction.ListenRfcomm -> listen(output)
+            is WirelessAction.ConnectRfcomm -> dial(output)
             is WirelessAction.RfcommWrite -> write(output)
             is WirelessAction.RfcommClose -> closeRfcomm(output.id)
             is WirelessAction.StartWifiNetwork -> startLocalHotspot(output.id)
@@ -166,6 +175,46 @@ internal class WirelessPlatformExecutor(
         }
         if (isClosed()) {
             endpoint.closeListener()
+            endpoint.closeConnection()
+            return
+        }
+        endpoint.start()
+    }
+
+    private fun dial(action: WirelessAction.ConnectRfcomm) {
+        val label = action.channel.label
+        val how = action.rfcommChannel?.let { "通道 $it" } ?: "按 SDP 查 ${action.uuid}"
+        log("$label：车机去连手机（${MacText.mask(action.address)}，$how）")
+        val events = object : RfcommClient.Events {
+            override fun onConnected() = ifConnected(action.id) {
+                log("$label：连上手机了")
+                results.onConnected(action.id)
+            }
+
+            override fun onConnectFailed(message: String) = ifConnected(action.id) {
+                log("$label：$message")
+                results.onIoError(action.id, message)
+            }
+
+            override fun onData(data: ByteArray) = ifConnected(action.id) { results.onData(action.id, data) }
+
+            override fun onClosed() = ifConnected(action.id) {
+                log("$label：手机关闭了连接")
+                results.onClosed(action.id)
+            }
+
+            override fun onConnectionError(message: String) = ifConnected(action.id) {
+                log("$label：$message")
+                results.onIoError(action.id, message)
+            }
+
+            override fun onNote(message: String) = ifConnected(action.id) { log("$label：$message") }
+        }
+        val endpoint = dialRfcomm(action.address, action.uuid, action.rfcommChannel, events)
+        synchronized(lock) {
+            if (!closed) connections[action.id] = endpoint
+        }
+        if (isClosed()) {
             endpoint.closeConnection()
             return
         }

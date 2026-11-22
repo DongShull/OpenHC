@@ -59,6 +59,7 @@ internal fun wirelessHint(state: WirelessUiState): String {
 private fun stepHint(step: WirelessStep): Int = when (step) {
     WirelessStep.BLUETOOTH_HANDSHAKE -> R.string.wireless_hint_bt_handshake
     WirelessStep.WAITING_AUTH -> R.string.wireless_hint_waiting_auth
+    WirelessStep.CONFIRM_ON_PHONE -> R.string.wireless_hint_confirm_on_phone
     WirelessStep.AUTH_PAIRING -> R.string.wireless_hint_auth_pairing
     WirelessStep.AUTH_TRUSTED -> R.string.wireless_hint_auth_trusted
     WirelessStep.NEGOTIATING_WIFI -> R.string.wireless_hint_negotiating_hotspot
@@ -138,6 +139,8 @@ private fun wirelessEndText(reason: WirelessEndReason): String = when (reason) {
         },
         reason.detail,
     )
+    is WirelessEndReason.ReconnectFailed ->
+        if (reason.needsPairing) stringResource(R.string.wireless_end_reconnect_pairing) else stringResource(R.string.wireless_end_reconnect, reason.detail)
     is WirelessEndReason.InternalError -> stringResource(R.string.wireless_end_internal, reason.message)
 }
 
@@ -151,9 +154,13 @@ internal fun wirelessBeaconText(status: BeaconStatus): String? = when (status) {
     BeaconStatus.Stopped -> null
 }
 
-/** 自动回连没在等的原因（无线页空闲时一行说明）；开关关着不说。 */
+/** 「自动连接手机」现在能不能起作用（无线页空闲时一行说明）；开关关着不说。 */
 @Composable
 internal fun wirelessAutoHoldText(hold: AutoHold): String? = when (hold) {
+    AutoHold.READY -> stringResource(R.string.wireless_auto_hold_ready)
+    AutoHold.NO_KNOWN_PHONE -> stringResource(R.string.wireless_auto_hold_no_known)
+    AutoHold.OVERLAY_MISSING -> stringResource(R.string.wireless_auto_hold_overlay)
+    AutoHold.UI_NOT_SHOWN -> stringResource(R.string.wireless_auto_hold_ui_not_shown)
     AutoHold.WIRED_ONLY -> stringResource(R.string.wireless_auto_hold_wired_only)
     AutoHold.DISABLED -> null
     AutoHold.PAUSED_BY_USER -> stringResource(R.string.wireless_auto_hold_paused)

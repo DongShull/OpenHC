@@ -292,7 +292,6 @@ private fun HomeFooter(
 internal fun modeSummary(prefs: WirelessPreferences): String {
     if (prefs.wiredOnly) return stringResource(R.string.home_mode_wired_only)
     val parts = mutableListOf(stringResource(R.string.home_mode_both))
-    if (prefs.autoReconnect) parts += stringResource(R.string.home_mode_auto)
     if (prefs.connectOnBluetooth) parts += stringResource(R.string.home_mode_connect_on_bt)
     return parts.joinToString(" · ")
 }
