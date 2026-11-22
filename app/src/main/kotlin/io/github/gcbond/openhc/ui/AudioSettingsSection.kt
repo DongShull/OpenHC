@@ -100,9 +100,9 @@ internal fun AudioSettingsSection() {
             prefs.mediaStream = it
         }
         GroupRow {
-            RowTitle(stringResource(R.string.settings_audio_fallback_title))
+            RowHeader(stringResource(R.string.settings_audio_fallback_title), stringResource(R.string.settings_audio_fallback_help))
             if (fallbacks.isEmpty()) {
-                RowDescription(stringResource(R.string.settings_audio_fallback_empty), Modifier.padding(top = 2.dp))
+                RowDescription(stringResource(R.string.settings_audio_fallback_none), Modifier.padding(top = 2.dp))
             } else {
                 for (record in fallbacks) {
                     FallbackRow(record) {
@@ -110,7 +110,6 @@ internal fun AudioSettingsSection() {
                         fallbacks = prefs.pcmFallbacks().records.filter { it.useAac }
                     }
                 }
-                RowDescription(stringResource(R.string.settings_audio_fallback_hint), Modifier.padding(top = 6.dp))
             }
         }
     }
@@ -160,8 +159,7 @@ private fun StreamRow(
     GroupRow(spacing = if (LocalCompact.current) 8.dp else 10.dp) {
         Row(Modifier.fillMaxWidth(), verticalAlignment = Alignment.CenterVertically) {
             Column(Modifier.weight(1f)) {
-                RowTitle(title)
-                RowDescription(description, Modifier.padding(top = 2.dp))
+                RowHeader(title, description)
                 note?.let { RowNote(it.text, warn = it.warn) }
             }
             Spacer(Modifier.width(12.dp))

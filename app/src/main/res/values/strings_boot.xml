@@ -12,6 +12,8 @@
     <string name="settings_boot_overlay_not_needed">这台车机是安卓 %1$s，不需要悬浮窗权限。</string>
     <string name="settings_boot_autostart_note">有的车机系统默认禁止应用开机自启动，要在系统的「自启动管理」「后台启动」之类的设置里允许 OpenHC；有的系统每次更新应用都会重新禁止，更新后要再允许一次。</string>
     <string name="settings_boot_open_app_settings">打开系统里 OpenHC 的设置页</string>
+    <string name="settings_boot_autostart_title">系统自启动管理</string>
+    <string name="settings_boot_byd_title">比亚迪后台启动</string>
     <string name="settings_boot_byd_note">比亚迪车机：要在「选择禁止后台启动项」里把 OpenHC 的开关关掉，「开机自动打开」和「蓝牙连上自动连接」才能用。每次更新安装 OpenHC，比亚迪都会把这个开关重新打开，更新后要再关一次。</string>
     <string name="settings_boot_open_byd">打开比亚迪的后台启动设置</string>
     <string name="settings_boot_last">上次开机：%1$s（%2$s）：%3$s</string>

@@ -153,7 +153,7 @@ internal fun BootStartSettingsSection(extraRows: @Composable () -> Unit = {}) {
             BydAutostartRow { openFirstAvailable(listOf(bydAutostart, BootStart.appDetailsIntent(context))) }
         } else {
             GroupRow(spacing = 8.dp) {
-                RowDescription(stringResource(R.string.settings_boot_autostart_note))
+                RowHeader(stringResource(R.string.settings_boot_autostart_title), stringResource(R.string.settings_boot_autostart_note))
                 ActionButton(
                     stringResource(R.string.settings_boot_open_app_settings),
                     onClick = { openFirstAvailable(listOf(BootStart.appDetailsIntent(context))) },
@@ -199,7 +199,7 @@ private fun lastBootText(record: BootRecord): String {
 @Composable
 private fun BydAutostartRow(onOpen: () -> Unit) {
     GroupRow(spacing = 8.dp) {
-        RowDescription(stringResource(R.string.settings_boot_byd_note))
+        RowHeader(stringResource(R.string.settings_boot_byd_title), stringResource(R.string.settings_boot_byd_note))
         ActionButton(stringResource(R.string.settings_boot_open_byd), onClick = onOpen)
     }
 }

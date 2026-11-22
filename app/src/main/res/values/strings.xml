@@ -9,6 +9,10 @@
     <string name="action_stop">停止</string>
     <string name="action_settings">设置</string>
     <string name="action_back">返回</string>
+    <!-- 设置项标题旁的「?」：点开看说明（读屏用） -->
+    <string name="row_help">说明</string>
+    <string name="row_help_shown">已展开</string>
+    <string name="row_help_hidden">已收起</string>
     <string name="action_show_projection">回到投屏画面</string>
     <string name="action_retry_now">立即重试</string>
     <string name="action_grant_vpn">去授权</string>
