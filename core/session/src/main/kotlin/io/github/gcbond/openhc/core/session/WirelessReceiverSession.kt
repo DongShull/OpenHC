@@ -665,7 +665,7 @@ class WirelessReceiverSession internal constructor(
     }
 
     private fun connectionInfo(net: WifiNetwork, port: Int) = WifiConnectionInfo(
-        mode = WifiMode.HOTSPOT,
+        mode = net.mode,
         phoneIp = WifiConnectionInfo.pickPhoneAddress(net.localIp),
         ssid = net.ssid,
         bssid = net.bssid,
@@ -710,7 +710,7 @@ class WirelessReceiverSession internal constructor(
                 connectionInfoSent = true
                 val layer = checkNotNull(nearby)
                 handleBluetooth(call(WirelessStep.PHONE_JOIN) { layer.sendConnectionInfo(info) }, nowMillis, out)
-                if (!ended) out.add(WirelessEvent.ConnectionInfoSent(wifiPort, mac, checkNotNull(info.hotspotChannel)))
+                if (!ended) out.add(WirelessEvent.ConnectionInfoSent(wifiPort, mac, info.hotspotChannel))
             }
         }
     }

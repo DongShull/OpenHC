@@ -471,6 +471,29 @@ class WirelessReceiverSessionTest {
         )
     }
 
+    /** 平台建的是直连组：连接串用直连格式（没有加入标记 1、没有信道号段），事件里的信道号为 null。 */
+    @Test
+    fun directGroupUsesTheDirectFormat() {
+        val d = Driver()
+        d.toAuthenticated()
+        assertEquals(listOf("event WifiNetworkReady(5745 MHz)"), d.networkReady(WirelessSynthetic.direct(5745)))
+        assertEquals(listOf("rfcomm-write BLUETOOTH_CONTROL dc:5745"), d.btData(WirelessChannel.BLUETOOTH_CONTROL, "nego"))
+        d.btData(WirelessChannel.BLUETOOTH_CONTROL, "confirm")
+        d.listening(SessionChannel.CONTROL, 40100)
+        assertEquals(
+            listOf("rfcomm-write BLUETOOTH_CONTROL info", "event ConnectionInfoSent(40100，直连)"),
+            d.btData(WirelessChannel.BLUETOOTH_CONTROL, "mac"),
+        )
+        val info = d.layers.bluetooth.lastInfo!!
+        assertEquals(WifiMode.DIRECT, info.mode)
+        assertEquals(
+            "192.168.49.2##DIRECT-ab-OpenHC\n0a:1b:2c:3d:4e:5f\n${WirelessSynthetic.HOTSPOT_PASSPHRASE}\n5745" +
+                "##version:3##40100##hicarApIp:192.168.49.1",
+            info.encode(),
+        )
+        assertNull(assertIs<WirelessEvent.ConnectionInfoSent>(d.outputs.last()).channel)
+    }
+
     @Test
     fun macBeforeAskingIsIgnoredAndSentOnlyOnce() {
         val d = Driver()
