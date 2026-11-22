@@ -38,15 +38,21 @@ class BootStartPolicyTest {
 
     @Test
     fun bootWaitsForTheCableUnlessWirelessCanGoFirst() {
+        fun wait(plugged: Boolean = false, usbAuto: Boolean = false, wireless: Boolean = true, onBt: Boolean = false) =
+            BootStartPolicy.waitForCable(phonePlugged = plugged, usbAutoConnect = usbAuto, wirelessWanted = wireless, connectOnBluetooth = onBt)
         // 不做无线：照常进入等插线。
-        assertTrue(BootStartPolicy.waitForCable(phonePlugged = false, usbAutoConnect = true, wirelessWanted = false))
-        assertTrue(BootStartPolicy.waitForCable(phonePlugged = false, usbAutoConnect = false, wirelessWanted = false))
+        assertTrue(wait(usbAuto = true, wireless = false))
+        assertTrue(wait(usbAuto = false, wireless = false))
         // 要做无线、插线又能自己把有线带起来：让无线先等手机回连。
-        assertFalse(BootStartPolicy.waitForCable(phonePlugged = false, usbAutoConnect = true, wirelessWanted = true))
-        // 要做无线、但插线不会自己开始有线：只能进入等插线。
-        assertTrue(BootStartPolicy.waitForCable(phonePlugged = false, usbAutoConnect = false, wirelessWanted = true))
-        // 开机时已经插着手机：不会再有一次接入，直接走有线。
-        assertTrue(BootStartPolicy.waitForCable(phonePlugged = true, usbAutoConnect = true, wirelessWanted = true))
+        assertFalse(wait(usbAuto = true))
+        // 要做无线、开着「蓝牙连上自动连接」：无线优先，开机不抢它（插线要在首页点「开始」）。
+        assertFalse(wait(usbAuto = false, onBt = true))
+        assertFalse(wait(usbAuto = true, onBt = true))
+        // 要做无线、两个都没开：插线不会自己开始有线，只能进入等插线。
+        assertTrue(wait(usbAuto = false))
+        // 开机时已经插着手机：不会再有一次接入，直接走有线（开着蓝牙连上自动连接也一样）。
+        assertTrue(wait(plugged = true, usbAuto = true))
+        assertTrue(wait(plugged = true, onBt = true))
     }
 
     @Test

@@ -7,6 +7,7 @@
     <string name="settings_boot_wired">打开后进入等插线，跟你手动打开再点「开始」一样。</string>
     <string name="settings_boot_wireless_both">开着无线自动回连和「插线时不再弹窗」：开机后先等已配对的手机无线回连；插上手机（或开机时已经插着）就改走有线。</string>
     <string name="settings_boot_wireless_blocked">开着无线自动回连，但没开「插线时不再弹窗」：开机后进入等插线，这期间不等手机无线回连。两样都要的话，请打开上面的「插线时不再弹窗」。</string>
+    <string name="settings_boot_wireless_bt">开着「蓝牙连上自动连接」：开机后先等已配对的手机无线回连；这时插上手机不会自动走有线，要在首页点「开始」。</string>
     <string name="settings_boot_overlay_granted">悬浮窗权限：已允许</string>
     <string name="settings_boot_overlay_missing">还差一步：悬浮窗权限。安卓 10 起，开机时要有它才能把 OpenHC 打开。点这里去开；车机上找不到时，在系统设置的「应用」里找到 OpenHC，打开「悬浮窗」或「显示在其他应用上层」。</string>
     <string name="settings_boot_overlay_not_needed">这台车机是安卓 %1$s，不需要悬浮窗权限。</string>
@@ -40,5 +41,6 @@
     <string name="settings_boot_silent_wired">开机后不打开首页，在后台等插线；手机连上开始投屏时才把投屏画面带到前台（首次配对要输连接码时也会露出来）。</string>
     <string name="settings_boot_silent_wireless_both">开机后不打开首页，在后台等已配对的手机无线回连；插上手机（或开机时已经插着）就改走有线。手机连上开始投屏时才把投屏画面带到前台。</string>
     <string name="settings_boot_silent_wireless_blocked">开机后不打开首页，在后台等插线，这期间不等手机无线回连。两样都要的话，请打开上面的「插线时不再弹窗」。</string>
+    <string name="settings_boot_silent_wireless_bt">开机后不打开首页，在后台等已配对的手机无线回连；这时插上手机不会自动走有线，要打开 OpenHC 点「开始」。手机连上开始投屏时才把投屏画面带到前台。</string>
     <string name="settings_boot_overlay_missing_silent">还差一步：悬浮窗权限。安卓 10 起，开机静默连接要有它，手机连上时才能把投屏画面带到前台。点这里去开；车机上找不到时，在系统设置的「应用」里找到 OpenHC，打开「悬浮窗」或「显示在其他应用上层」。</string>
 </resources>

@@ -93,6 +93,7 @@ internal object BootStart {
         phonePlugged = phonePlugged(context),
         usbAutoConnect = UsbAutoConnect.isEnabled(context),
         wirelessWanted = wirelessWanted(context),
+        connectOnBluetooth = WirelessPreferences(context).connectOnBluetooth,
     )
 
     /** 开机后无线要不要等手机回连（只看设置）。 */

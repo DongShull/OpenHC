@@ -52,10 +52,12 @@ object BootStartPolicy {
      * - 车机上已经插着手机：进入等插线（插着的手机不会再有一次「设备接入」把有线带起来）；
      * - 不做无线（[wirelessWanted] 为假）：进入等插线；
      * - 要做无线、开着「插线时不再弹窗」：不进入，让无线先等手机回连；之后插线时系统会拉起本应用，照样开始有线；
-     * - 要做无线、没开「插线时不再弹窗」：插线不会自己开始有线，只能进入等插线（这期间不做无线自动回连）。
+     * - 要做无线、开着「蓝牙连上自动连接」：不进入。车主要的是无线优先：手机蓝牙一连上，本应用已经在等回连了，
+     *   开机打开界面不能把它抢掉；代价是插线不会自己开始有线，要在首页点「开始」；
+     * - 要做无线、两个都没开：插线不会自己开始有线，只能进入等插线（这期间不做无线自动回连）。
      */
-    fun waitForCable(phonePlugged: Boolean, usbAutoConnect: Boolean, wirelessWanted: Boolean): Boolean =
-        phonePlugged || !wirelessWanted || !usbAutoConnect
+    fun waitForCable(phonePlugged: Boolean, usbAutoConnect: Boolean, wirelessWanted: Boolean, connectOnBluetooth: Boolean): Boolean =
+        phonePlugged || !wirelessWanted || !(usbAutoConnect || connectOnBluetooth)
 
     /** 开机后无线要不要等手机回连，只看设置：没开「只用数据线连接」，并且开着无线自动回连或蓝牙连上自动连接。 */
     fun wirelessWanted(wiredOnly: Boolean, autoReconnect: Boolean, connectOnBluetooth: Boolean): Boolean =

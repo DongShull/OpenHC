@@ -24,6 +24,7 @@ import androidx.core.content.ContextCompat
 import io.github.gcbond.openhc.R
 import io.github.gcbond.openhc.connection.UsbAutoConnect
 import io.github.gcbond.openhc.platform.net.VpnConsent
+import io.github.gcbond.openhc.settings.WirelessPreferences
 import io.github.gcbond.openhc.startup.BootOutcome
 import io.github.gcbond.openhc.startup.BootRecord
 import io.github.gcbond.openhc.startup.BootStart
@@ -49,6 +50,7 @@ internal fun BootStartSettingsSection(extraRows: @Composable () -> Unit = {}) {
     val record = remember(context) { BootStart.lastRecord(context) }
     val installedAt = remember(context) { BootStart.installedAtMillis(context) }
     val wirelessWanted = remember(context) { BootStart.wirelessWanted(context) }
+    val connectOnBluetooth = remember(context) { WirelessPreferences(context).connectOnBluetooth }
     val usbChanges by UsbAutoConnect.changes.collectAsState()
     val usbAutoConnect = remember(context, usbChanges) { UsbAutoConnect.isEnabled(context) }
     // 从系统设置页回来时重查悬浮窗权限。
@@ -79,11 +81,17 @@ internal fun BootStartSettingsSection(extraRows: @Composable () -> Unit = {}) {
         silent && (!wirelessWanted || !hotspotSupported) -> R.string.settings_boot_silent_wired
         !wirelessWanted -> R.string.settings_boot_wired
         usbAutoConnect -> if (silent) R.string.settings_boot_silent_wireless_both else R.string.settings_boot_wireless_both
+        connectOnBluetooth -> if (silent) R.string.settings_boot_silent_wireless_bt else R.string.settings_boot_wireless_bt
         else -> if (silent) R.string.settings_boot_silent_wireless_blocked else R.string.settings_boot_wireless_blocked
     }
     // 静默那一行的提示：开机自动打开关着时它不起作用；开着时说还缺什么（VPN 授权只影响先等插线的情况）。
     val waitsForCable = !hotspotSupported ||
-        BootStartPolicy.waitForCable(phonePlugged = false, usbAutoConnect = usbAutoConnect, wirelessWanted = wirelessWanted)
+        BootStartPolicy.waitForCable(
+            phonePlugged = false,
+            usbAutoConnect = usbAutoConnect,
+            wirelessWanted = wirelessWanted,
+            connectOnBluetooth = connectOnBluetooth,
+        )
     val silentNote = when {
         !enabled -> stringResource(R.string.settings_boot_silent_needs_boot)
         !silent -> null
