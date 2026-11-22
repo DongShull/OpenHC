@@ -74,6 +74,13 @@
         android:name="android.hardware.usb.host"
         android:required="false" />
 
+    <!-- 比亚迪车机「选择禁止后台启动项」对话框：安卓 11 起要声明，才查得到车机上有没有它（设置 → 启动）。 -->
+    <queries>
+        <intent>
+            <action android:name="android.intent.action.BYD_APPSTARTMANAGEMENT" />
+        </intent>
+    </queries>
+
     <application
         android:name=".OpenHcApp"
         android:allowBackup="false"

@@ -126,6 +126,26 @@ internal object BootStart {
     fun appDetailsIntent(context: Context): Intent =
         Intent(Settings.ACTION_APPLICATION_DETAILS_SETTINGS, Uri.fromParts("package", context.packageName, null))
 
+    /**
+     * 比亚迪车机的「选择禁止后台启动项」对话框：开关开着的应用收不到开机广播、蓝牙连上的广播（没在运行时），
+     * 车主要把本应用的开关关掉才放行；比亚迪每次更新安装应用都会把它重新打开。没有这个对话框的车机返回 null。
+     */
+    fun bydAutostartIntent(context: Context): Intent? {
+        val intent = Intent(ACTION_BYD_APP_START_MANAGEMENT)
+        val pm = context.packageManager
+        val found = try {
+            if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.TIRAMISU) {
+                pm.resolveActivity(intent, PackageManager.ResolveInfoFlags.of(0))
+            } else {
+                @Suppress("DEPRECATION")
+                pm.resolveActivity(intent, 0)
+            }
+        } catch (e: RuntimeException) {
+            null
+        }
+        return if (found != null) intent else null
+    }
+
     fun lastRecord(context: Context): BootRecord? = BootRecord.decode(prefs(context).getString(KEY_LAST_BOOT, null))
 
     fun saveRecord(context: Context, record: BootRecord) {
@@ -155,5 +175,8 @@ internal object BootStart {
     private const val PREFS_FILE = "openhc-boot"
     private const val KEY_LAST_BOOT = "last_boot"
     private const val KEY_SILENT = "silent_connect"
+
+    /** 比亚迪「选择禁止后台启动项」对话框的动作（清单里的 queries 也要声明，安卓 11 起才查得到）。 */
+    private const val ACTION_BYD_APP_START_MANAGEMENT = "android.intent.action.BYD_APPSTARTMANAGEMENT"
     const val TAG = "OpenHC-Boot"
 }

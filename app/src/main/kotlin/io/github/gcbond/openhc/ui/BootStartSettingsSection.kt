@@ -127,7 +127,12 @@ internal fun BootStartSettingsSection(extraRows: @Composable () -> Unit = {}) {
                 }
             }
         }
-        if (!enabled) return@SettingsGroup
+        // 比亚迪车机：开机自动打开、蓝牙连上自动连接都要在它的「选择禁止后台启动项」里放行，开关没开也给入口。
+        val bydAutostart = remember(context) { BootStart.bydAutostartIntent(context) }
+        if (!enabled) {
+            if (bydAutostart != null) BydAutostartRow { openFirstAvailable(listOf(bydAutostart, BootStart.appDetailsIntent(context))) }
+            return@SettingsGroup
+        }
 
         // 悬浮窗权限
         when {
@@ -143,13 +148,17 @@ internal fun BootStartSettingsSection(extraRows: @Composable () -> Unit = {}) {
                 RowNote(stringResource(if (silent) R.string.settings_boot_overlay_missing_silent else R.string.settings_boot_overlay_missing))
             }
         }
-        // 车机系统的自启动管理：只能说明，给个本应用系统设置页的入口
-        GroupRow(spacing = 8.dp) {
-            RowDescription(stringResource(R.string.settings_boot_autostart_note))
-            ActionButton(
-                stringResource(R.string.settings_boot_open_app_settings),
-                onClick = { openFirstAvailable(listOf(BootStart.appDetailsIntent(context))) },
-            )
+        // 车机系统的自启动管理：比亚迪直接打开它的对话框；别的车机只能说明，给个本应用系统设置页的入口
+        if (bydAutostart != null) {
+            BydAutostartRow { openFirstAvailable(listOf(bydAutostart, BootStart.appDetailsIntent(context))) }
+        } else {
+            GroupRow(spacing = 8.dp) {
+                RowDescription(stringResource(R.string.settings_boot_autostart_note))
+                ActionButton(
+                    stringResource(R.string.settings_boot_open_app_settings),
+                    onClick = { openFirstAvailable(listOf(BootStart.appDetailsIntent(context))) },
+                )
+            }
         }
         // 上次开机的结果
         val seen = BootStartPolicy.bootSeenSinceInstall(record, installStamp = installedAt)
@@ -184,6 +193,15 @@ private fun lastBootText(record: BootRecord): String {
         },
     )
     return stringResource(R.string.settings_boot_last, time, kind, outcome)
+}
+
+/** 比亚迪车机的后台启动放行：说明 + 直接打开它的「选择禁止后台启动项」对话框。 */
+@Composable
+private fun BydAutostartRow(onOpen: () -> Unit) {
+    GroupRow(spacing = 8.dp) {
+        RowDescription(stringResource(R.string.settings_boot_byd_note))
+        ActionButton(stringResource(R.string.settings_boot_open_byd), onClick = onOpen)
+    }
 }
 
 /** 能显示通知：安卓 13 以前不用申请。 */
