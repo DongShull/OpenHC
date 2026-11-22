@@ -51,7 +51,9 @@
 **作者只能处理比亚迪车机 + 纯血鸿蒙手机上的问题。** 其他车机、手机的问题可以提出来给大家参考，但作者没有设备，多半没法修。
 
 请在 [Issues](https://github.com/GGBondLab/OpenHC/issues) 里写明：车机型号和安卓版本、手机型号和系统版本、有线还是无线、操作步骤、
-期望和实际结果、出问题的时间。能接 ADB 的话，附上 `adb logcat -v time | grep OpenHC-` 的输出。
+期望和实际结果、出问题的时间，并附上诊断日志：0.2.1 起，出问题以后在 OpenHC「设置 → 诊断 → 导出诊断日志」，把生成的文件附上
+（安卓 10 起在「下载/OpenHC」文件夹；更早的系统在 `Android/data/io.github.gcbond.openhc/files/OpenHC`）；
+更早的版本能接 ADB 的话，附上 `adb logcat -v time | grep OpenHC-` 的输出。
 安全问题和连接参数的说明见 [安全说明](SECURITY.md)。
 
 ## 构建
