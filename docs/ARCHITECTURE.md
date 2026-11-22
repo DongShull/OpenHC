@@ -192,5 +192,5 @@ tools:desktop ─▶ core:session        （开发工具，不进安装包）
 
 ## 车机固定参数
 
-车型编号、品牌、名称、帧加密用的密钥材料和认证服务身份固定在 `app/src/main/assets/openhc-identity.json`，
-所有安装包都一样，应用每次开始连接时读它。改了车型编号，手机会把车机当成另一台车，要重新配对一次。
+车型编号、品牌、名称等连接参数放在 `openhc-identity.json` 里。它不进仓库，
+构建时从本机目录打进安装包（见 `app/build.gradle.kts`，格式见 `docs/identity.example.json`），应用每次开始连接时读它。改了车型编号，手机会把车机当成另一台车，要重新配对一次。

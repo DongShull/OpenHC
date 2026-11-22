@@ -46,6 +46,7 @@
 
 请在 [Issues](https://github.com/GGBondLab/OpenHC/issues) 里写明：车机型号和安卓版本、手机型号和系统版本、有线还是无线、操作步骤、
 期望和实际结果、出问题的时间。能接 ADB 的话，附上 `adb logcat -v time | grep OpenHC-` 的输出。
+安全问题和连接参数的说明见 [安全说明](SECURITY.md)。
 
 ## 构建
 
@@ -56,6 +57,9 @@
 ```
 
 安装包在 `app/build/outputs/apk/debug/`。代码结构见 [架构说明](docs/ARCHITECTURE.md)。
+
+要连得上手机，还需要一份连接参数文件 `openhc-identity.json`（不随源码发布，格式见 [示例](docs/identity.example.json)）：
+把它单独放进一个目录，在 `local.properties` 里写 `openhc.identity.dir=<目录>`（或设环境变量 `OPENHC_IDENTITY_DIR`），构建时会打进安装包。
 
 ## 参与
 
