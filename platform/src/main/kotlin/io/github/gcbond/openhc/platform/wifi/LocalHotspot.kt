@@ -87,6 +87,11 @@ class LocalHotspotOwner private constructor(context: Context) {
     private val watchThread = HandlerThread("OpenHC-HotspotWatch").also { it.start() }
     private val watchHandler = Handler(watchThread.looper)
 
+    /** 安卓 13 起尝试读系统回报的热点实际频率和 BSSID（读不到就推测）；回报在工作线程上交付。 */
+    private val infoWatcher: HotspotInfoWatcher? = wifi
+        ?.takeIf { Build.VERSION.SDK_INT >= Build.VERSION_CODES.TIRAMISU }
+        ?.let { manager -> HotspotInfoWatcher(manager, { handler.post(it) }) { note(it) } }
+
     // ---------------------------------------------------------------- 以下只在工作线程上访问
 
     private val machine = HotspotRequestMachine()
@@ -167,6 +172,8 @@ class LocalHotspotOwner private constructor(context: Context) {
         private var stage = Stage.NEW
         private var info: ReservationInfo? = null
         private var addressDeadline = 0L
+        private var infoDeadline = 0L
+        private var wlanFallbackAt = 0L
         private val poll = Runnable { pollAddress() }
 
         override fun start() {
@@ -211,13 +218,24 @@ class LocalHotspotOwner private constructor(context: Context) {
             }
             stage = Stage.WAITING_ADDRESS
             addressDeadline = now() + ADDRESS_WAIT_MS
+            infoDeadline = now() + INFO_WAIT_MS
+            wlanFallbackAt = now() + WLAN_FALLBACK_DELAY_MS
             pollAddress()
         }
 
         private fun pollAddress() {
             if (stopped || stage != Stage.WAITING_ADDRESS) return
-            val picked = LocalHotspotRules.pickInterface(before, snapshot())
-            if (picked != null) return ready(picked.first, picked.second)
+            // 车机自己的 WiFi 还开着（能一边连 WiFi 一边开热点）时，「只有一个 wlan 地址就用它」的兜底推迟一会儿再用，
+            // 免得热点网卡的地址还没出现就选了车机 WiFi 的地址；开热点时 WiFi 会断开的车机不用等。
+            val wlanFallback = !stationEnabled() || now() >= wlanFallbackAt
+            val picked = LocalHotspotRules.pickInterface(before, snapshot(), stationIpv4(), wlanFallback)
+            // 挂上了热点信息回调、回报还没到：再等一会儿（最多 INFO_WAIT_MS），拿到实际频率和 BSSID 再交出去。
+            val waitInfo = infoWatcher?.let { it.registered && it.frequencyMhz == 0 } == true && now() < infoDeadline
+            if (picked != null && !waitInfo) return ready(picked.first, picked.second)
+            if (picked != null) {
+                handler.postDelayed(poll, ADDRESS_POLL_MS)
+                return
+            }
             if (now() < addressDeadline) {
                 handler.postDelayed(poll, ADDRESS_POLL_MS)
                 return
@@ -229,8 +247,8 @@ class LocalHotspotOwner private constructor(context: Context) {
             val read = info ?: return fail("热点信息丢了")
             val name = LocalHotspotRules.networkName(read.ssid) ?: return fail("读不到热点的网络名")
             val passphrase = read.passphrase ?: return fail("读不到热点的口令")
-            val (bssid, macSource) = LocalHotspotRules.pickBssid(read.bssid, hardwareAddress(interfaceName))
-            val (frequency, frequencySource) = LocalHotspotRules.estimateFrequency(read.hint)
+            val (bssid, macSource) = LocalHotspotRules.pickBssid(read.bssid, hardwareAddress(interfaceName), infoWatcher?.bssid)
+            val (frequency, frequencySource) = LocalHotspotRules.estimateFrequency(read.hint, infoWatcher?.frequencyMhz ?: 0)
             val hotspot = LocalHotspot(ip, name, bssid, passphrase, frequency, interfaceName, macSource, frequencySource, read.security)
             stage = Stage.READY
             log(
@@ -302,6 +320,8 @@ class LocalHotspotOwner private constructor(context: Context) {
         if (Build.VERSION.SDK_INT < Build.VERSION_CODES.O) return rejected("安卓 8.0 以下没有本地热点")
         val manager = wifi ?: return rejected("拿不到系统的 WiFi 服务")
         before = snapshot()
+        infoWatcher?.reset()
+        infoWatcher?.register()
         val stationOn = stationEnabled()
         if (stationOn) stationNote = true
         note("向系统申请本地热点（车机 WiFi ${if (stationOn) "开着，当前连接 ${stationFrequency()} MHz" else "关着"}）")
@@ -391,6 +411,7 @@ class LocalHotspotOwner private constructor(context: Context) {
     }
 
     private fun releaseNow() {
+        infoWatcher?.unregister()
         val held = reservation ?: return
         reservation = null
         closeQuietly(held)
@@ -494,6 +515,18 @@ class LocalHotspotOwner private constructor(context: Context) {
         0
     }
 
+    /**
+     * 车机作为终端正连着的 WiFi 上的 IPv4，没连为 null。选热点网卡时排除它：能一边连 WiFi 一边开热点的车机上，
+     * 它可能被误当成热点地址。
+     */
+    @Suppress("DEPRECATION")
+    private fun stationIpv4(): String? = try {
+        val ip = wifi?.connectionInfo?.ipAddress ?: 0
+        if (ip == 0) null else "${ip and 0xFF}.${ip ushr 8 and 0xFF}.${ip ushr 16 and 0xFF}.${ip ushr 24 and 0xFF}"
+    } catch (e: RuntimeException) {
+        null
+    }
+
     /** 开着的网卡和上面的 IPv4（不含回环、链路本地）。 */
     private fun snapshot(): Map<String, Set<String>> {
         val out = HashMap<String, Set<String>>()
@@ -535,6 +568,12 @@ class LocalHotspotOwner private constructor(context: Context) {
         /** 热点开好后等网卡上出现地址的上限。 */
         const val ADDRESS_WAIT_MS = 3_000L
         const val ADDRESS_POLL_MS = 100L
+
+        /** 挂上了热点信息回调时，系统开好热点后等它回报实际频率和 BSSID 的上限（到点按推测）。 */
+        const val INFO_WAIT_MS = 1_500L
+
+        /** 车机 WiFi 还开着时，「只有一个 wlan 地址就用它」的兜底在系统开好热点这么久以后才用（车主实测过 1.5 秒够）。 */
+        const val WLAN_FALLBACK_DELAY_MS = 1_500L
 
         /** 停掉后过这么久才关热点：让会话收尾时最后几个包先发出去。 */
         const val STOP_DRAIN_MS = 200L
