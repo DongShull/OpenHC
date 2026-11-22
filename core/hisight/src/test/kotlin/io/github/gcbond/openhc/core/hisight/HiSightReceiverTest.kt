@@ -209,6 +209,66 @@ class HiSightReceiverTest {
         assertEquals(listOf("TEARDOWN  RTSP/1.0#4"), phone.read(s.shutdown()))
     }
 
+    /** 送一条正文为 [body] 的 ANNOUNCE（在手机应答车机开头那条之后），返回这一步的输出。 */
+    private fun announce(s: HiSightReceiver, phone: Phone, body: String): List<HiSightOutput> {
+        s.start()
+        return s.feed(phone.frame("RTSP/1.0 200 OK\r\nCSeq: 1\r\n\r\n") +
+            phone.frame("ANNOUNCE * RTSP/1.0\r\nCSeq: 8\r\nContent-Type: text/parameters\r\nContent-Length: ${body.length}\r\n\r\n$body"))
+    }
+
+    /** 鸿蒙 4.x 的手机按「正好一行」的旧规则被拒；这些写法都接受，并交出诊断说明，之后照常切到加密。 */
+    @Test
+    fun announceVariantsAreAcceptedWithANote() {
+        val variants = listOf(
+            "encrypt_description: encrypt_list=aes128ctr;version=1",
+            "encrypt_description: encrypt_list=aes128ctr;version=1\n",
+            "encrypt_description: encrypt_list=aes128ctr;version=1\r\n\r\n",
+            "encrypt_description: encrypt_list=aes128ctr;version=1\r\nencrypt_option: 2\r\n",
+            "encrypt_description: encrypt_list=aes128ctr,sm4ctr;version=1\r\n",
+            "encrypt_description: encrypt_list=AES128CTR;version=1;mode=2\r\n",
+            "encrypt_description: encrypt_list=aes128ctr\r\n",
+            "\r\nencrypt_description:encrypt_list = aes128ctr ; version = 1\r\n",
+        )
+        for (body in variants) {
+            val phone = Phone()
+            val s = session()
+            val out = announce(s, phone, body)
+            assertEquals(listOf("RTSP/1.0 200 OK#8"), phone.read(out), body)
+            val note = out.filterIsInstance<HiSightOutput.Note>().single()
+            assertTrue("encrypt_description" in note.text && "\r" !in note.text && "\n" !in note.text, note.text)
+            phone.encrypted = true
+            assertEquals(listOf("RTSP/1.0 200 OK#9", "OPTIONS * RTSP/1.0#2"), phone.read(s.feed(phone.frame("OPTIONS * RTSP/1.0\r\nCSeq: 9\r\n\r\n"))), body)
+        }
+    }
+
+    /** 不认识的写法里万一带着密钥一类的长串，诊断说明里只写长度。 */
+    @Test
+    fun longTokensInAnAnnounceAreNotShown() {
+        val token = "0123456789abcdef0123456789ABCDEF"
+        val phone = Phone()
+        val out = announce(session(), phone, "encrypt_description: encrypt_list=aes128ctr;version=1;key=$token\r\nencrypt_option: 2\r\n")
+        val note = out.filterIsInstance<HiSightOutput.Note>().single()
+        assertTrue(token !in note.text && "<隐去 32 字符>" in note.text && "encrypt_list=aes128ctr" in note.text, note.text)
+    }
+
+    @Test
+    fun standardAnnounceHasNoNote() {
+        val out = announce(session(), Phone(), "encrypt_description: encrypt_list=aes128ctr;version=1\r\n")
+        assertTrue(out.none { it is HiSightOutput.Note })
+    }
+
+    @Test
+    fun unsupportedCryptoIsStillRejected() {
+        for (body in listOf(
+            "encrypt_description: encrypt_list=aes128ctr;version=2\r\n",
+            "encrypt_description: encrypt_list=sm4ctr;version=1\r\n",
+            "encrypt_description: version=1\r\n",
+            "encrypt_option: encrypt_list=aes128ctr;version=1\r\n",
+        )) {
+            assertFailsWith<MalformedMessageException>(body) { announce(session(), Phone(), body) }
+        }
+    }
+
     @Test
     fun outputsBeforeAnErrorAreKeptForShutdown() {
         val phone = Phone()

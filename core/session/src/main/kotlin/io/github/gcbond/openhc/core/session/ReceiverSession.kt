@@ -751,6 +751,7 @@ class ReceiverSession internal constructor(
                     close(video, out)
                     close(remote, out)
                 }
+                is HiSightOutput.Note -> diag(SessionLayer.HISIGHT, o.text, out)
                 is HiSightOutput.Ended -> {
                     hisightEnded = true
                     finish(EndReason.ProjectionEnded(o.reason), out)
