@@ -3,6 +3,7 @@ package io.github.gcbond.openhc.core.hisight.video
 import io.github.gcbond.openhc.core.common.MalformedMessageException
 import io.github.gcbond.openhc.core.hisight.AccessUnit
 import io.github.gcbond.openhc.core.hisight.AccessUnitSink
+import io.github.gcbond.openhc.core.hisight.VideoGap
 import io.github.gcbond.openhc.core.hisight.crypto.AesCtr
 
 /**
@@ -13,7 +14,11 @@ import io.github.gcbond.openhc.core.hisight.crypto.AesCtr
  * 计数跳过；RTP 载荷从调用方的数组直接拷进可复用的 PES 缓冲（每个字节只拷这一次）；marker 到达后
  * 把 ES 解密到另一块可复用的输出缓冲，经 [AccessUnit] 交出。两块缓冲按需倍增、不缩小，上限 10MiB。
  *
- * 丢包、重复包、同一 PES 内时间戳变化、连接中 SSRC 变化都直接判失败，失败后不能继续使用。
+ * 序号跳变（丢包、重复包、序号倒退）不判失败：手机发送端拥塞时会把排着队的普通帧整批丢掉、直接发关键帧，序号随之跳过
+ * （见 [io.github.gcbond.openhc.core.hisight.VideoGap]）。跳变时丢掉拼了一半的帧，之后只从一帧（PES）的开头接上：
+ * 包的载荷以明文 PES 头开头（起始码 00 00 01、第 6 字节 0x84、带 PTS，和 [deliver] 的检查一致）才算，不靠 marker 推断
+ * （marker 包本身可能就在丢掉的那段里）；不是开头的包一律丢掉。接上后交出的第一帧带 [AccessUnit.gapBefore]。
+ * 同一 PES 内时间戳变化、连接中 SSRC 变化、包头格式不对仍直接判失败，失败后不能继续使用。
  * 序号在 64999 之后回到 0（不是 65535）。
  */
 internal class VideoDepacketizer(sessionKey: ByteArray, private val sink: AccessUnitSink) {
@@ -39,6 +44,17 @@ internal class VideoDepacketizer(sessionKey: ByteArray, private val sink: Access
     private var streamSsrc = -1L
     private var pesTimestamp = 0L
     private var pesFirstSequence = 0
+    /** 当前 PES 已经收下的包数（断档时算进丢掉的包）。 */
+    private var pesPackets = 0
+
+    /** 断档后还没接上：下一帧的开头之前的包都丢掉。 */
+    private var resyncing = false
+    /** 上一帧交出以后的断档情况，交出下一帧时放进 [AccessUnit.gapBefore]；没断档为 0 / -1。 */
+    private var gapJumps = 0
+    private var gapExpected = -1
+    private var gapReceived = -1
+    private var gapLost = 0L
+    private var gapDiscarded = 0L
 
     private var pes = ByteArray(INITIAL_BUFFER)
     private var pesLength = 0
@@ -51,6 +67,18 @@ internal class VideoDepacketizer(sessionKey: ByteArray, private val sink: Access
     var packetsReceived = 0L
         private set
     var bytesReceived = 0L
+        private set
+
+    /** 序号跳变的次数。 */
+    var sequenceGaps = 0L
+        private set
+
+    /** 按序号推算手机少发的包数（只算往前跳的）。 */
+    var packetsLost = 0L
+        private set
+
+    /** 本机因为断档丢掉的包数。 */
+    var packetsDiscarded = 0L
         private set
 
     fun feed(data: ByteArray, offset: Int, length: Int) {
@@ -131,7 +159,15 @@ internal class VideoDepacketizer(sessionKey: ByteArray, private val sink: Access
                     if (payloadRemaining == 0) {
                         packetsReceived++
                         state = STATE_LENGTH
-                        if (marker) deliver()
+                        if (resyncing && pesPackets == 0 && !looksLikePesStart()) {
+                            // 断档后等下一帧的开头：这个包在一帧中间，丢掉（它带 marker 也不交）。
+                            discard(1)
+                            pesLength = 0
+                        } else {
+                            resyncing = false
+                            pesPackets++
+                            if (marker) deliver()
+                        }
                     }
                 }
             }
@@ -173,7 +209,7 @@ internal class VideoDepacketizer(sessionKey: ByteArray, private val sink: Access
         val payloadLength = packetLength - headerLength
         if (lastSequence >= 0) {
             val expected = if (lastSequence == LAST_SEQUENCE) 0 else lastSequence + 1
-            if (sequence != expected) throw MalformedMessageException("视频 RTP 序号不连续（丢包或重复）")
+            if (sequence != expected) onSequenceGap(expected)
         }
         if (streamSsrc >= 0 && ssrc != streamSsrc) throw MalformedMessageException("视频 RTP 的 SSRC 在连接中改变")
         if (pesLength > 0 && timestamp != pesTimestamp) throw MalformedMessageException("同一 PES 内 RTP 时间戳改变")
@@ -188,6 +224,38 @@ internal class VideoDepacketizer(sessionKey: ByteArray, private val sink: Access
         payloadRemaining = payloadLength
         state = STATE_PAYLOAD
     }
+
+    /**
+     * 序号跳变：记下情况，丢掉拼了一半的帧，之后从下一帧的开头接上。
+     * 往前跳了不到半圈算手机少发了包；重复、倒退、超出序号范围的只算断档。
+     */
+    private fun onSequenceGap(expected: Int) {
+        sequenceGaps++
+        // 不用 Math.floorMod：低版本安卓没有。
+        val ahead = if (sequence <= LAST_SEQUENCE) ((sequence - expected) % SEQUENCE_COUNT + SEQUENCE_COUNT) % SEQUENCE_COUNT else -1
+        val lost = if (ahead in 1 until SEQUENCE_COUNT / 2) ahead.toLong() else 0L
+        packetsLost += lost
+        if (gapJumps == 0) {
+            gapExpected = expected
+            gapReceived = sequence
+        }
+        gapJumps++
+        gapLost += lost
+        if (pesPackets > 0) discard(pesPackets.toLong())
+        pesLength = 0
+        pesPackets = 0
+        resyncing = true
+    }
+
+    private fun discard(packets: Long) {
+        packetsDiscarded += packets
+        gapDiscarded += packets
+    }
+
+    /** 拼进来的内容以 PES 头开头：起始码 00 00 01、第 6 字节 0x84、带 PTS（和 [deliver] 的检查一致）。 */
+    private fun looksLikePesStart(): Boolean =
+        pesLength >= 14 && pes[0].toInt() == 0 && pes[1].toInt() == 0 && pes[2].toInt() == 1 &&
+            pes[6].toInt() and 0xFF == 0x84 && pes[7].toInt() and 0x80 != 0
 
     /**
      * PES 头：`00 00 01`、stream_id、BE16 长度（0 表示不声明，否则长度 + 6 等于整个 PES）、
@@ -231,9 +299,14 @@ internal class VideoDepacketizer(sessionKey: ByteArray, private val sink: Access
         unit.pts90k = pts
         unit.firstSequence = pesFirstSequence
         unit.lastSequence = sequence
+        unit.gapBefore = if (gapJumps == 0) null else VideoGap(gapExpected, gapReceived, gapJumps, gapLost, gapDiscarded)
+        gapJumps = 0
+        gapLost = 0L
+        gapDiscarded = 0L
+        pesLength = 0
+        pesPackets = 0
         sink.onAccessUnit(unit)
         framesDelivered++
-        pesLength = 0
     }
 
     private fun grow(buffer: ByteArray, keep: Int, needed: Int): ByteArray {
@@ -256,6 +329,7 @@ internal class VideoDepacketizer(sessionKey: ByteArray, private val sink: Access
         const val MAX_PES = MAX_PACKET
         private const val PAYLOAD_TYPE = 96
         private const val LAST_SEQUENCE = 64999
+        private const val SEQUENCE_COUNT = LAST_SEQUENCE + 1
         private const val INITIAL_BUFFER = 256 * 1024
 
         private const val STATE_LENGTH = 0

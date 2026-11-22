@@ -185,7 +185,8 @@ class HiSightReceiverTest {
     fun videoFramesReachSinkAndVideoErrorsSurface() {
         val phone = Phone()
         val frames = ArrayList<ByteArray>()
-        val s = session(sink = AccessUnitSink { frames += it.copyBytes() })
+        val gaps = ArrayList<VideoGap?>()
+        val s = session(sink = AccessUnitSink { frames += it.copyBytes(); gaps += it.gapBefore })
         negotiate(s, phone, "RTP/AVP/TCP;unicast;server_port=5000")
         val es = byteArrayOf(0, 0, 0, 1, 0x65, 1, 2, 3)
         val sealed = AesCtr(key).seal(es, SecureRandom())
@@ -195,8 +196,15 @@ class HiSightReceiverTest {
         s.feedVideo(packet, 0, packet.size)
         assertEquals(1, frames.size)
         assertTrue(es.contentEquals(frames[0]))
-        // 同一序号再来一次 = 重复包，视频流失败。
-        assertFailsWith<MalformedMessageException> { s.feedVideo(packet, 0, packet.size) }
+        // 同一序号再来一次 = 重复包：只算断档（手机拥塞时会整批丢帧，序号会跳），这一包是完整的一帧，照交并带上断档情况。
+        s.feedVideo(packet, 0, packet.size)
+        assertEquals(2, frames.size)
+        assertEquals(null, gaps[0])
+        assertEquals(1, gaps[1]!!.receivedSequence)
+        // SSRC 变了才是真错：视频流失败，错误报出来。
+        val other = rtp.copyOf().also { it[3] = 2; it[11] = 2 }
+        val bad = byteArrayOf(0, 0, 0, other.size.toByte()) + other
+        assertFailsWith<MalformedMessageException> { s.feedVideo(bad, 0, bad.size) }
         assertFailsWith<MalformedMessageException> { s.onVideoClosed() }
         assertEquals(listOf("TEARDOWN  RTSP/1.0#4"), phone.read(s.shutdown()))
     }
