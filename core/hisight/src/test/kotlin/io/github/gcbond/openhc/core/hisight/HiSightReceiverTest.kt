@@ -257,6 +257,34 @@ class HiSightReceiverTest {
         assertTrue(out.none { it is HiSightOutput.Note })
     }
 
+    /** 加密选择之后不发 OPTIONS、直接查能力和设能力：照常应答，只记一条说明；之后能照常走到 SETUP。 */
+    @Test
+    fun capabilityRequestsWithoutOptionsAreAnsweredWithOneNote() {
+        val phone = Phone()
+        val s = session()
+        announce(s, phone, "encrypt_description: encrypt_list=aes128ctr;version=1\r\n")
+        phone.encrypted = true
+        val query = s.feed(phone.request("GET_PARAMETER", 9, "his_version\r\nhis_video_formats\r\n"))
+        assertEquals(listOf("RTSP/1.0 200 OK#9"), phone.read(query))
+        val note = query.filterIsInstance<HiSightOutput.Note>().single()
+        assertTrue("OPTIONS" in note.text && "GET_PARAMETER" in note.text, note.text)
+
+        val m4 = s.feed(phone.request("SET_PARAMETER", 10, "his_video_formats: codecs 1;width 640;height 480;fps 30\r\n"))
+        assertEquals(listOf("RTSP/1.0 200 OK#10"), phone.read(m4))
+        assertTrue(m4.none { it is HiSightOutput.Note }, "说明只记一次")
+        assertEquals(listOf("RTSP/1.0 200 OK#11", "SETUP * RTSP/1.0#2"),
+            phone.read(s.feed(phone.request("SET_PARAMETER", 11, "his_trigger_method: SETUP\r\n"))))
+    }
+
+    @Test
+    fun capabilityRequestBeforeEncryptionIsRejected() {
+        val phone = Phone()
+        val s = session()
+        s.start()
+        s.feed(phone.frame("RTSP/1.0 200 OK\r\nCSeq: 1\r\n\r\n"))
+        assertFailsWith<MalformedMessageException> { s.feed(phone.request("GET_PARAMETER", 9, "his_version\r\n")) }
+    }
+
     @Test
     fun unsupportedCryptoIsStillRejected() {
         for (body in listOf(
