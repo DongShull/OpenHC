@@ -279,6 +279,29 @@ class HiSightReceiverTest {
             phone.read(s.feed(phone.request("SET_PARAMETER", 11, "his_trigger_method: SETUP\r\n"))))
     }
 
+    /** 投屏期间手机发的事件通知、暂停等触发命令和再来的能力选择：都回 200、写说明，不断开。值都是编的。 */
+    @Test
+    fun otherTriggersAndLateSelectionsAreAnsweredWithoutEnding() {
+        val phone = Phone()
+        val s = session()
+        negotiate(s, phone, "RTP/AVP/TCP;unicast;server_port=5000;remotectl_port=5001")
+        val event = s.feed(phone.request("SET_PARAMETER", 20, "his_trigger_method: SEND_EVENT_CHANGE\r\nmodule_id: 3\r\nevent: 7\r\nparam: abc\r\n"))
+        assertEquals(listOf("RTSP/1.0 200 OK#20"), phone.read(event))
+        val notes = event.filterIsInstance<HiSightOutput.Note>().map { it.text }
+        assertTrue(notes.any { "module_id: 3" in it && "param: abc" in it }, notes.toString())
+        assertTrue(notes.any { "SEND_EVENT_CHANGE" in it }, notes.toString())
+        assertTrue(event.none { it is HiSightOutput.Ended })
+
+        val pause = s.feed(phone.request("SET_PARAMETER", 21, "his_trigger_method: PAUSE\r\n"))
+        assertEquals(listOf("RTSP/1.0 200 OK#21"), phone.read(pause))
+        assertTrue(pause.filterIsInstance<HiSightOutput.Note>().any { "PAUSE" in it.text })
+
+        val late = s.feed(phone.request("SET_PARAMETER", 22, "his_video_formats: codecs 1;width 320;height 240;fps 25\r\n"))
+        assertEquals(listOf("RTSP/1.0 200 OK#22"), phone.read(late))
+        assertTrue(late.filterIsInstance<HiSightOutput.Note>().any { "不重新协商" in it.text })
+        assertTrue(late.none { it is HiSightOutput.Ended })
+    }
+
     @Test
     fun capabilityRequestBeforeEncryptionIsRejected() {
         val phone = Phone()

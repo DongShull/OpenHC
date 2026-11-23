@@ -325,8 +325,15 @@ class HiSightReceiver(
         out += sendControl(RtspTemplates.getParameterOk(message.cseq, body))
     }
 
+    /**
+     * 手机的 SET_PARAMETER。触发命令：SETUP、TEARDOWN 照协议处理；投屏期间手机还会发 PAUSE、PLAY（暂停、恢复画面）和
+     * SEND_EVENT_CHANGE（事件通知，带 `module_id`、`event`、`param`），以及别的命令：都回 200、写一条说明，不断开。
+     * 不认识的参数名跳过并写进说明。投屏开始后再来的能力选择也回 200、写原文，不重新协商。
+     */
     private fun handleSetParameter(message: RtspMessage, out: MutableList<HiSightOutput>, wallClockMillis: Long) {
-        val fields = ParameterText.parameters(message.body)
+        val unknown = ArrayList<String>(0)
+        val fields = ParameterText.parameters(message.body, unknown)
+        if (unknown.isNotEmpty()) out += HiSightOutput.Note("手机的设置消息里有不认识的参数，跳过：${visible(unknown.joinToString("；"))}")
         val trigger = fields[ParameterText.TRIGGER]
         if (trigger == "TEARDOWN") {
             if (!cryptoReady) throw MalformedMessageException("结束触发早于加密协商")
@@ -339,14 +346,25 @@ class HiSightReceiver(
         }
         requireNegotiationReady(message, out)
         if (trigger == null) {
-            if (setup != null || SETUP in pending.values) throw MalformedMessageException("SETUP 之后不支持重新协商能力")
+            if (setup != null || SETUP in pending.values) {
+                out += HiSightOutput.Note(
+                    "投屏开始后手机又发来能力选择，不重新协商、照常回 200：${visible(String(message.body, Charsets.UTF_8), SELECTION_NOTE_MAX_CHARS)}",
+                )
+                out += sendControl(RtspTemplates.ok(message.cseq, date(wallClockMillis)))
+                return
+            }
             // 能力选择的原文写进诊断日志：各家手机选法不一样，出错时要靠它对症（只有能力描述，长串照样隐去）。
             out += HiSightOutput.Note("手机的能力选择：${visible(String(message.body, Charsets.UTF_8), SELECTION_NOTE_MAX_CHARS)}")
             for (note in capabilities.select(fields)) out += HiSightOutput.Note(note)
             out += sendControl(RtspTemplates.ok(message.cseq, date(wallClockMillis)))
             return
         }
-        if (trigger != "SETUP" || fields.size != 1) throw MalformedMessageException("只支持单独的 SETUP 触发")
+        if (trigger != "SETUP") {
+            val detail = if (unknown.isEmpty()) "" else "（${visible(unknown.joinToString("；"))}）"
+            out += HiSightOutput.Note("手机发来触发命令 ${visible(trigger)}$detail，照常回 200，车机这边不处理")
+            out += sendControl(RtspTemplates.ok(message.cseq, date(wallClockMillis)))
+            return
+        }
         if (setup != null || SETUP in pending.values) throw MalformedMessageException("重复的 SETUP 触发")
         if (capabilities.selection == null) throw MalformedMessageException("SETUP 前缺少视频参数选择")
         out += sendControl(RtspTemplates.ok(message.cseq, date(wallClockMillis)))
