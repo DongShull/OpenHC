@@ -173,11 +173,14 @@ internal object RtspParser {
             (values["content-type"] ?: "").lowercase() == RtspMessage.TEXT_PARAMETERS &&
             first.startsWith("SET_PARAMETER ") && requestMethod(first) == "SET_PARAMETER"
 
-    /** 空 GET_PARAMETER 保活：只有空 Date 和 CSeq，最后一行之后没有空行也没有多余字节。 */
+    /**
+     * 空 GET_PARAMETER 保活：只有 Date 和 CSeq，最后一行之后没有空行也没有多余字节。Date 可以是空的，也可以带时间
+     * （鸿蒙 3.0 的手机投屏约 30 秒后发这种，2026-11 实机）。
+     */
     private fun keepAliveWithoutBlankLine(p: ByteArray, lines: Lines, first: String, headers: HeaderTable): RtspMessage? {
         val values = headers.values
         val matches = lines.tailStart == p.size && first.startsWith("GET_PARAMETER rtsp://") &&
-            values.size == 2 && values["date"] == "" && "cseq" in values &&
+            values.size == 2 && "date" in values && "cseq" in values &&
             printableOutsideCrlf(p) && requestMethod(first) == "GET_PARAMETER"
         return if (matches) RtspMessage(first, values, EMPTY, cseqOf(values)) else null
     }
