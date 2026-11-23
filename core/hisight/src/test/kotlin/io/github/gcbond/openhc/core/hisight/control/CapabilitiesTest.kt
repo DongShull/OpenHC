@@ -203,6 +203,16 @@ class CapabilitiesTest {
     }
 
     @Test
+    fun undeclaredInputFeaturesAreAcceptedWithANote() {
+        val caps = Capabilities(HiSightConfig(640, 480, 640, 480, 30, 160))
+        val notes = caps.select(
+            ParameterText.parameters(ascii("his_feature: input_feature_set=1,101;\r\nhis_video_formats: codecs 1;width 320;height 240;fps 25\r\n")),
+        )
+        assertEquals(320, caps.mediaSetup(1000, -1).selection.width)
+        assertTrue(notes.single().let { "输入功能" in it && "input_feature_set=1,101;" in it }, notes.toString())
+    }
+
+    @Test
     fun configRejectsInvalidValues() {
         assertFailsWith<IllegalArgumentException> { HiSightConfig(0, 480, 640, 480, 30, 160) }
         assertFailsWith<IllegalArgumentException> { HiSightConfig(640, 480, 640, 480, 30, 160, gop = 0) }

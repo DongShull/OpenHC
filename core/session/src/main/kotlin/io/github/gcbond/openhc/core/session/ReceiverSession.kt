@@ -800,8 +800,13 @@ class ReceiverSession internal constructor(
         if (hs != null && !hisightEnded) {
             hisightEnded = true
             // 投屏层自己判断还能不能发 TEARDOWN（加密已协商、控制连接还在）；发不出去的写会被丢掉。
+            // 出错前已经产生的说明（例如手机的能力选择原文）也在这里交出来，照样写进诊断日志。
             for (o in quietly { hs.shutdown() }) {
-                if (o is HiSightOutput.Send) write(hisightEndpoint(o.channel), o.bytes, out)
+                when (o) {
+                    is HiSightOutput.Send -> write(hisightEndpoint(o.channel), o.bytes, out)
+                    is HiSightOutput.Note -> diag(SessionLayer.HISIGHT, o.text, out)
+                    else -> Unit
+                }
             }
         }
         val d = dmsdp

@@ -128,7 +128,11 @@ internal class Capabilities(private val config: HiSightConfig) {
         }
         if ("his_vtp" in fields) throw MalformedMessageException("没有声明 VTP，手机却选择了它")
         fields["his_feature"]?.let {
-            if (it != "input_feature_set=;") throw MalformedMessageException("手机选择了未实现的输入功能")
+            if (it != "input_feature_set=;") {
+                // 车机声明的输入功能是空的，鸿蒙 3.0 的手机仍会列上自己的（2026-11 实机）：照常继续，不按它处理。
+                val shown = it.filter { c -> c in ' '..'~' }.take(AUDIO_NOTE_MAX)
+                notes += "手机选了输入功能「$shown」（车机没声明），照常继续，不按它处理"
+            }
         }
 
         var source = sourceDeviceType
