@@ -226,6 +226,14 @@ sealed class AudioEvent {
      * 声明 PCM 时这台手机的表现（见 [PcmVerdict]）。应用按 [phone] 记下来：失败的手机下次连接改声明 AAC。
      * [phone] 为 null 表示没收到手机的设备信息、认不出是哪台。
      */
+    /**
+     * 手机不应答 TCP 方式的 SETUP、直接拆掉了数据会话：这次连接之后的数据会话改用 UDP，应用应记下这台手机
+     * （下次连接直接用 UDP）。[phone] 认不出时为 null。
+     */
+    class TransportFallback(val phone: PhoneRef?) : AudioEvent() {
+        override fun toString() = "手机（${phone ?: "认不出是哪台手机"}）不应答 TCP 方式的 SETUP，之后的数据会话改用 UDP"
+    }
+
     class CodecVerdict(val phone: PhoneRef?, val verdict: PcmVerdict) : AudioEvent() {
         override fun toString() = "PCM 判定（${phone ?: "认不出是哪台手机"}）：${verdict.label}" +
             if (verdict.failure) "，下次连接这台手机可能改用 AAC" else ""

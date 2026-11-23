@@ -72,6 +72,9 @@ internal class SpeakerSession(
     /** 控制连接上送来的声音（见 [ControlChannelAudio]）：拼组、按一路声音交出；参数在第一组时定下。 */
     private val controlAudio = ControlChannelAudio()
 
+    /** 这次连接里手机不应答 TCP 的 SETUP（或记着要用 UDP），之后的数据会话都用 UDP。 */
+    private var udpFallback = false
+
     /** 控制连接上的一路声音：各用各的播放端会话号和包。 */
     private class ControlStream(val info: AudioStreamInfo, val packet: AudioPacket) {
         var groups = 0L
@@ -374,10 +377,10 @@ internal class SpeakerSession(
             return
         }
         if (active != null) end(active, AudioEndReason.REPLACED)
-        val stream = Stream(streamInfo(sessionId, message.header(PARA_AUDIO) ?: "", speaker.transport, codec))
+        val stream = Stream(streamInfo(sessionId, message.header(PARA_AUDIO) ?: "", transport(), codec))
         current = stream
         emit(AudioEvent.Requested(stream.info))
-        out?.add(DmsdpAction.OpenAudioListeners(speaker.transport))
+        out?.add(DmsdpAction.OpenAudioListeners(stream.info.transport))
     }
 
     private fun onTeardown(message: DmsdpMessage) {
@@ -445,7 +448,30 @@ internal class SpeakerSession(
         emit(AudioEvent.SetupSent(stream.info, stream.port, cseq, stream.info.codec))
     }
 
+    /**
+     * 这次数据会话用的传输方式：调试强制 UDP 时一律 UDP；否则手机在 UDP 名单里、或这次连接里已经因为它不应答 TCP 改过，
+     * 用 UDP；其余用 TCP。
+     */
+    private fun transport(): AudioTransport {
+        if (speaker.transport != AudioTransport.TCP) return speaker.transport
+        if (udpFallback) return AudioTransport.UDP
+        val phone = peer
+        if (phone != null && phone.key in speaker.udpPhones) {
+            udpFallback = true
+            note(null, "手机 ${phone} 记着要用 UDP，数据会话用 UDP")
+            return AudioTransport.UDP
+        }
+        return AudioTransport.TCP
+    }
+
     private fun end(stream: Stream, reason: AudioEndReason) {
+        // 手机对 TCP 方式的 SETUP 一直没有应答、也没连数据端口就拆掉了：它不认 TCP（老鸿蒙），之后改用 UDP。
+        if (reason == AudioEndReason.PEER_TEARDOWN && stream.info.transport == AudioTransport.TCP && !udpFallback &&
+            speaker.transport == AudioTransport.TCP && stream.port != 0 && stream.answer == null && stream.data == null
+        ) {
+            udpFallback = true
+            emit(AudioEvent.TransportFallback(peer))
+        }
         stream.data?.finish()
         if (current === stream) current = null
         val pending = setups.entries.iterator()

@@ -104,9 +104,20 @@ class AudioPreferences(context: Context) {
         prefs.edit { putString(KEY_PCM_BOOK, book.encode()) }
     }
 
+    /** 要用 UDP 传声音的手机编号（它们不应答 TCP 方式的 SETUP，见 [AudioSettings]）。 */
+    fun udpPhones(): Set<String> = synchronized(LOCK) { prefs.getStringSet(KEY_UDP_PHONES, null)?.toSet() ?: emptySet() }
+
+    /** 记下一台要用 UDP 的手机（协议线程上调用）；最多记 [MAX_UDP_PHONES] 台，多了清掉重记。 */
+    fun addUdpPhone(key: String) = synchronized(LOCK) {
+        val now = prefs.getStringSet(KEY_UDP_PHONES, null)?.toMutableSet() ?: HashSet()
+        if (now.size >= MAX_UDP_PHONES) now.clear()
+        now += key
+        prefs.edit { putStringSet(KEY_UDP_PHONES, now) }
+    }
+
     /** 下一次连接的音频设置；关掉声音时为 null（不声明扬声器，声音留在手机上）。 */
     fun toSettings(): AudioSettings? = if (enabled) {
-        AudioSettings(transport, codec, multiBus, if (codec == AudioCodec.PCM) pcmFallbacks().aacPhones() else emptySet())
+        AudioSettings(transport, codec, multiBus, if (codec == AudioCodec.PCM) pcmFallbacks().aacPhones() else emptySet(), udpPhones())
     } else {
         null
     }
@@ -130,6 +141,8 @@ class AudioPreferences(context: Context) {
         private const val KEY_ENABLED = "enabled"
         private const val KEY_CODEC = "debug_codec"
         private const val KEY_TRANSPORT = "debug_transport"
+        private const val KEY_UDP_PHONES = "udp_phones"
+        private const val MAX_UDP_PHONES = 32
         private const val KEY_MULTI_BUS = "debug_multi_bus"
         private const val KEY_DELAY = "delay_millis"
         private const val KEY_LOW_LATENCY = "debug_low_latency"

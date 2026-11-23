@@ -323,6 +323,48 @@ class SpeakerSessionTest {
         assertEquals(1, audio.sessions.toSet().size, audio.sessions.toString())
     }
 
+    /** 车机最近发出的那条 SETUP 的原文。 */
+    private fun lastSetup(outputs: List<DmsdpOutput>): String =
+        outputs.filterIsInstance<DmsdpAction.Send>().map { String(phone.openControlFrame(it.bytes)) }.last { it.startsWith("SETUP ") }
+
+    /**
+     * 传输方式按手机选：先 TCP；手机不应答 TCP 的 SETUP、直接拆掉数据会话，就发「改用 UDP」事件，之后的数据会话用 UDP。
+     */
+    @Test
+    fun phoneIgnoringTcpSetupMakesLaterSessionsUseUdp() {
+        val audio = AudioRecorder()
+        val session = toSetupSent(audio)
+        session.feed(DmsdpChannel.CONTROL, trigger("TEARDOWN", cseq = "6"), 4_000)
+        val fallback = audio.only<AudioEvent.TransportFallback>()
+        assertEquals(PhoneRef.keyOf(Synthetic.PEER_ID), fallback.phone?.key)
+        val next = session.feed(DmsdpChannel.CONTROL, trigger("OPTIONS", sessionId = "78", cseq = "7"), 4_100)
+        assertEquals(AudioTransport.UDP, next.filterIsInstance<DmsdpAction.OpenAudioListeners>().single().transport)
+        val setup = lastSetup(session.audioListenersReady(40200, 4_150))
+        assertTrue("Fillp: 0" in setup && "TCP:" !in setup, setup)
+        // 改过之后不再重复发事件。
+        session.feed(DmsdpChannel.CONTROL, trigger("TEARDOWN", sessionId = "78", cseq = "8"), 7_000)
+        assertEquals(1, audio.events.count { it is AudioEvent.TransportFallback })
+    }
+
+    /** 手机在 UDP 名单里：第一次就用 UDP。正常应答 TCP 的手机不改。 */
+    @Test
+    fun udpPhonesStartWithUdpAndAnsweringPhonesStayOnTcp() {
+        val listed = AudioRecorder()
+        val session = speakerSession(speaker = DmsdpConfig.Speaker(udpPhones = setOf(PhoneRef.keyOf(Synthetic.PEER_ID))), audio = listed)
+        session.phoneDeviceInfo()
+        session.speakerProfile()
+        val out = session.feed(DmsdpChannel.CONTROL, trigger("OPTIONS"), 1_000)
+        assertEquals(AudioTransport.UDP, out.filterIsInstance<DmsdpAction.OpenAudioListeners>().single().transport)
+
+        val answered = AudioRecorder()
+        val tcp = toSetupSent(answered)
+        tcp.feed(DmsdpChannel.CONTROL, phone.encryptedText("DMSDP/1.0 200 OK\r\nCSeq: 2\r\n\r\n"), 1_100)
+        tcp.feed(DmsdpChannel.CONTROL, trigger("TEARDOWN", cseq = "6"), 4_000)
+        assertTrue(answered.events.none { it is AudioEvent.TransportFallback })
+        val again = tcp.feed(DmsdpChannel.CONTROL, trigger("OPTIONS", sessionId = "78", cseq = "7"), 4_100)
+        assertEquals(AudioTransport.TCP, again.filterIsInstance<DmsdpAction.OpenAudioListeners>().single().transport)
+    }
+
     /** CLOSE 和 TEARDOWN 一样：回 200、关掉对得上的会话；已经拆过的只回 200。 */
     @Test
     fun closeIsAnsweredLikeTeardown() {
