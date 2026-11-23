@@ -450,7 +450,17 @@ class DmsdpSession(
             }
             return
         }
-        val message = DmsdpMessage.parse(payload)
+        val message = try {
+            DmsdpMessage.parse(payload)
+        } catch (e: MalformedMessageException) {
+            // 看着像文字、却拆不开（头部行缺冒号、含非 ASCII 等）：跳过并记下开头，不断开连接。
+            unrecognizedPayloads++
+            if (unrecognizedPayloads <= UNRECOGNIZED_REPORTED || unrecognizedPayloads % UNRECOGNIZED_REPORT_EVERY == 0) {
+                val head = payload.copyOf(minOf(payload.size, DmsdpEvent.UnrecognizedControlPayload.HEAD_BYTES))
+                out.event(DmsdpEvent.UnrecognizedControlPayload(unrecognizedPayloads, payload.size, head))
+            }
+            return
+        }
         when {
             isKeepAliveRequest(message) -> tcpKeepAlive?.onPeerRequest()
             isTimeSyncRequest(message) -> {

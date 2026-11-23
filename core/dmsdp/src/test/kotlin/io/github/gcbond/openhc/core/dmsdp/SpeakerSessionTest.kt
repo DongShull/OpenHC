@@ -283,6 +283,21 @@ class SpeakerSessionTest {
         assertTrue(audio.events.any { it is AudioEvent.Note && "没有接受" in it.message })
     }
 
+    /** CLOSE 和 TEARDOWN 一样：回 200、关掉对得上的会话；已经拆过的只回 200。 */
+    @Test
+    fun closeIsAnsweredLikeTeardown() {
+        val audio = AudioRecorder()
+        val session = toSetupSent(audio)
+        val close = session.feed(DmsdpChannel.CONTROL, trigger("CLOSE", cseq = "6"), 9_000)
+        assertEquals(
+            "DMSDP/1.0 200 OK\r\nServiceID: speaker1\r\nServiceType: 3\r\nDataSessionID: 77\r\nCSeq: 6\r\n\r\n",
+            text(close[0]),
+        )
+        assertEquals(AudioEndReason.PEER_TEARDOWN, audio.only<AudioEvent.Ended>().reason)
+        val again = session.feed(DmsdpChannel.CONTROL, trigger("CLOSE", cseq = "7"), 9_100)
+        assertTrue(text(again.single()).contains("DataSessionID: 77\r\nCSeq: 7\r\n"))
+    }
+
     @Test
     fun teardownIsAnsweredAndClosesTheDataSession() {
         val audio = AudioRecorder()

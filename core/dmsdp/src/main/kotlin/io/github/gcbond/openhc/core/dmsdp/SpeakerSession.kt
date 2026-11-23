@@ -1,5 +1,6 @@
 package io.github.gcbond.openhc.core.dmsdp
 
+import io.github.gcbond.openhc.core.common.toHex
 import io.github.gcbond.openhc.core.dmsdp.audio.AudioCodec
 import io.github.gcbond.openhc.core.dmsdp.audio.AudioDepacketizer
 import io.github.gcbond.openhc.core.dmsdp.audio.AudioEndReason
@@ -273,6 +274,11 @@ internal class SpeakerSession(
         packet.length = length
         packet.route = router.route(packet.bus, packet.usage)
         if (controlAudio.groups == 1L) emit(AudioEvent.FirstPacket(info, packet.payloadType, length))
+        if (controlAudio.groups <= CONTROL_GROUPS_NOTED) {
+            // 组头长度各版本不同：前几组记下用了多长的组头和组开头的字节，出问题时对照（只有长度、时间戳和 PCM，没有标识）。
+            val head = data.copyOf(minOf(offset + length, CONTROL_GROUP_HEAD_SHOWN)).toHex()
+            note(info, "控制连接声音第 ${controlAudio.groups} 组：组头 $offset 字节、PCM $length 字节，开头 $head")
+        }
         check?.onPacket(AudioCodec.PCM, true)?.let { verdict(it) }
         guard("onAudioPacket") { listener.onAudioPacket(packet) }
     }
@@ -294,7 +300,8 @@ internal class SpeakerSession(
         val trigger = triggerMethod(message)
         when {
             trigger.equals(TRIGGER_OPTIONS, ignoreCase = true) -> onOptions(message, nowMillis)
-            trigger.equals(TRIGGER_TEARDOWN, ignoreCase = true) -> onTeardown(message)
+            // CLOSE：老鸿蒙拆掉数据会话之后紧跟着发（2026-11 实机每 3 秒一轮），和 TEARDOWN 一样回 200、关掉对得上的会话。
+            trigger.equals(TRIGGER_TEARDOWN, ignoreCase = true) || trigger.equals(TRIGGER_CLOSE, ignoreCase = true) -> onTeardown(message)
             trigger != null -> unhandled(message, "手机触发了没实现的数据会话操作「${trigger.take(32)}」，没有应答")
             message.header(AUDIO_PARAMETER) != null -> onAudioParameter(message)
             else -> unhandled(message, "扬声器服务的 SET_PARAMETER 没有触发字段，没有应答")
@@ -490,6 +497,11 @@ internal class SpeakerSession(
         const val TRIGGER_FIELD = "msdp_trigger_method"
         const val TRIGGER_OPTIONS = "OPTIONS"
         const val TRIGGER_TEARDOWN = "TEARDOWN"
+        const val TRIGGER_CLOSE = "CLOSE"
+
+        /** 控制连接声音前几组写说明、每组写开头多少字节。 */
+        private const val CONTROL_GROUPS_NOTED = 3L
+        private const val CONTROL_GROUP_HEAD_SHOWN = 32
 
         /** 数据会话消息里扬声器的服务类型（服务声明里是 4，这里是 3）。 */
         const val DATA_SERVICE_TYPE = "3"
