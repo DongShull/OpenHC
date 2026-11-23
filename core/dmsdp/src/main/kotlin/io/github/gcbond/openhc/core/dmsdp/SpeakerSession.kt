@@ -75,7 +75,6 @@ internal class SpeakerSession(
     /** 控制连接上的一路声音：各用各的播放端会话号和包。 */
     private class ControlStream(val info: AudioStreamInfo, val packet: AudioPacket) {
         var groups = 0L
-        var lastMillis = 0L
         var lastRoute: AudioRoute? = null
         var lastSsrc = -1L
     }
@@ -85,7 +84,9 @@ internal class SpeakerSession(
 
     /** 控制连接上的各路声音，键是片头里的流号。 */
     private val controlStreams = LinkedHashMap<Long, ControlStream>()
-    private var controlStreamsCreated = 0
+
+    /** 控制连接上的声音在播放端的会话信息，所有流号共用。 */
+    private var controlInfo: AudioStreamInfo? = null
 
     private inner class Stream(val info: AudioStreamInfo) {
         /** 数据端口；0 表示还没开好（SETUP 还没发）。 */
@@ -261,37 +262,29 @@ internal class SpeakerSession(
     fun onControlAudio(payload: ByteArray, nowMillis: Long, out: DmsdpSession.Outputs): Boolean {
         var recognized = false
         using(out) {
-            recognized = controlAudio.feed(payload) { group -> emitControlPcm(group, nowMillis) }
+            recognized = controlAudio.feed(payload) { group -> emitControlPcm(group) }
         }
         return recognized
     }
 
     /**
-     * 这个流号对应的一路声音。新流号出现时：已有某一路停了 [CONTROL_IDLE_REUSE_MS] 以上，就当成那一路换了号、接着用它的
-     * 播放器；否则另开一路（同时放的两路声音各用各的播放器，播放端混音）。
+     * 这个流号对应的拼组状态。所有流号共用同一个播放端会话号（[controlInfo]）：老鸿蒙每隔几秒换一次流号，声音却是连着的，
+     * 要接着用同一个播放器；同时放的几路（导航、音乐）靠组头里的路号拼出不同的 SSRC，在播放端各用各的播放器。
      */
-    private fun controlStreamFor(stream: Long, nowMillis: Long): ControlStream {
+    private fun controlStreamFor(stream: Long): ControlStream {
         controlStreams[stream]?.let { return it }
-        val idle = controlStreams.entries.firstOrNull { nowMillis - it.value.lastMillis >= CONTROL_IDLE_REUSE_MS }
-        if (idle != null) {
-            controlStreams.remove(idle.key)
-            controlStreams[stream] = idle.value
-            return idle.value
-        }
         if (controlStreams.size >= ControlChannelAudio.MAX_STREAMS) controlStreams.remove(controlStreams.keys.first())
-        val number = ++controlStreamsCreated
-        // 采样参数按手机最近一次声音请求（ParaAudio）；还没请求过时按实机的 48 kHz 双声道 16 位。
-        val basis = current?.info
-        val info = AudioStreamInfo(
-            if (number == 1) CONTROL_SESSION_ID else "$CONTROL_SESSION_ID-$number",
-            basis?.sampleRate ?: CONTROL_SAMPLE_RATE, basis?.channels ?: CONTROL_CHANNELS, PCM_BITS,
-            null, AudioCodec.PCM, AudioTransport.TCP, "经控制连接",
-        )
-        note(
-            info,
-            (if (number == 1) "手机经控制连接送声音（没走音频数据连接）" else "手机经控制连接同时送第 $number 路声音（和其他路分开拼、分开放）") +
-                "，按 ${info.sampleRate}Hz / ${info.channels} 声道 / 16 位小端 PCM 放",
-        )
+        val info = controlInfo ?: run {
+            // 采样参数按手机最近一次声音请求（ParaAudio）；还没请求过时按实机的 48 kHz 双声道 16 位。
+            val basis = current?.info
+            AudioStreamInfo(
+                CONTROL_SESSION_ID, basis?.sampleRate ?: CONTROL_SAMPLE_RATE, basis?.channels ?: CONTROL_CHANNELS, PCM_BITS,
+                null, AudioCodec.PCM, AudioTransport.TCP, "经控制连接",
+            ).also {
+                controlInfo = it
+                note(it, "手机经控制连接送声音（没走音频数据连接），按 ${it.sampleRate}Hz / ${it.channels} 声道 / 16 位小端 PCM 放")
+            }
+        }
         return ControlStream(info, AudioPacket(info)).also { controlStreams[stream] = it }
     }
 
@@ -299,10 +292,9 @@ internal class SpeakerSession(
      * 拼好的一组交给播放端。分路和音频数据连接同一套规则（[AudioRouter]）：组头带了路号和用途时拼成同样的 SSRC
      * （高 16 位用途、低 16 位 1000 + 路号），导航、音乐等各走各的通道；没带时当媒体。通话扬声器的声音一律放通话通道。
      */
-    private fun emitControlPcm(group: ControlChannelAudio.Group, nowMillis: Long) {
-        val control = controlStreamFor(group.stream, nowMillis)
+    private fun emitControlPcm(group: ControlChannelAudio.Group) {
+        val control = controlStreamFor(group.stream)
         control.groups++
-        control.lastMillis = nowMillis
         val info = control.info
         val packet = control.packet
         val data = group.data
@@ -329,11 +321,11 @@ internal class SpeakerSession(
         packet.offset = offset
         packet.length = length
         packet.route = route
-        if (control.groups == 1L) emit(AudioEvent.FirstPacket(info, packet.payloadType, length))
-        if (control.groups <= CONTROL_GROUPS_NOTED) {
+        if (controlAudio.groups == 1L) emit(AudioEvent.FirstPacket(info, packet.payloadType, length))
+        if (controlAudio.groups <= CONTROL_GROUPS_NOTED) {
             // 组头长度各版本不同：前几组记下用了多长的组头和组开头的字节，出问题时对照（只有长度、时间戳和 PCM，没有标识）。
             val head = data.copyOf(minOf(offset + length, CONTROL_GROUP_HEAD_SHOWN)).toHex()
-            note(info, "控制连接声音第 ${control.groups} 组：组头 $offset 字节、PCM $length 字节，开头 $head")
+            note(info, "控制连接声音第 ${controlAudio.groups} 组：组头 $offset 字节、PCM $length 字节，开头 $head")
         }
         check?.onPacket(AudioCodec.PCM, true)?.let { verdict(it) }
         guard("onAudioPacket") { listener.onAudioPacket(packet) }
@@ -563,8 +555,6 @@ internal class SpeakerSession(
         /** SSRC 低 16 位 = 这个数 + 路号（和音频数据连接相同）。 */
         private const val CONTROL_SSRC_BASE = 1000L
 
-        /** 新流号出现时，停了这么久的那一路当成换了号，接着用它的播放器。 */
-        private const val CONTROL_IDLE_REUSE_MS = 1_000L
         private const val CONTROL_GROUP_HEAD_SHOWN = 32
 
         /** 数据会话消息里扬声器的服务类型（服务声明里是 4，这里是 3）。 */

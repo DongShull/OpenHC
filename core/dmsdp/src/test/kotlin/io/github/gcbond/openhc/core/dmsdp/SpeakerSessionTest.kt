@@ -40,6 +40,7 @@ class SpeakerSessionTest {
         val raw = ByteArrayOutputStream()
         val packets = ArrayList<ByteArray>()
         val routes = ArrayList<Pair<Int, AudioRoute>>()
+        val sessions = ArrayList<String>()
         var throwOnEvent = false
 
         override fun onAudioEvent(event: AudioEvent) {
@@ -54,6 +55,7 @@ class SpeakerSessionTest {
         override fun onAudioPacket(packet: AudioPacket) {
             packets += packet.copyPayload()
             routes += packet.bus to packet.route
+            sessions += packet.stream.dataSessionId
         }
 
         inline fun <reified T : AudioEvent> only(): T = events.filterIsInstance<T>().single()
@@ -304,6 +306,21 @@ class SpeakerSessionTest {
             audio.routes,
         )
         assertContentEquals(f.pcm(2048, 2), audio.packets[1])
+    }
+
+    /** 老鸿蒙每隔几秒换一次流号：换号前后的声音用同一个播放端会话，接着放。 */
+    @Test
+    fun controlChannelAudioKeepsOnePlayerAcrossStreamChanges() {
+        val audio = AudioRecorder()
+        val session = speakerSession(audio = audio)
+        val f = ControlAudioFrames
+        for (stream in listOf(0x11111111L, 0x22222222L)) {
+            for (frag in f.fragments(1, f.group(f.pcm(1024, 1)), 3, stream = stream)) {
+                session.feed(DmsdpChannel.CONTROL, phone.encryptedFrame(frag), 2_000)
+            }
+        }
+        assertEquals(2, audio.sessions.size)
+        assertEquals(1, audio.sessions.toSet().size, audio.sessions.toString())
     }
 
     /** CLOSE 和 TEARDOWN 一样：回 200、关掉对得上的会话；已经拆过的只回 200。 */
