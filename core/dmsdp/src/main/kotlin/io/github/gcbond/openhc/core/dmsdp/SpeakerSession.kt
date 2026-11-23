@@ -478,8 +478,7 @@ internal class SpeakerSession(
     }
 
     internal companion object {
-        /** 控制连接上的声音在播放端用的「数据会话」号（真正的数据会话号是数字，不会撞）。 */
-        const val CONTROL_SESSION_ID = "control"
+        const val CONTROL_SESSION_ID = AudioStreamInfo.CONTROL_SESSION_ID
         const val CONTROL_SAMPLE_RATE = 48_000
         const val CONTROL_CHANNELS = 2
         const val PCM_BITS = 16

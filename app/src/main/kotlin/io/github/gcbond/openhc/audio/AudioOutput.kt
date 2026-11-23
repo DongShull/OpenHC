@@ -126,8 +126,11 @@ internal class AudioOutput(
             is AudioEvent.Ended -> {
                 stopSession(event.stream.dataSessionId, "数据会话结束（${event.reason.label}）")
                 // 手机拆掉数据会话就是不放了：焦点一并放掉（通话中的通话焦点除外），它重新出声时会再要；被新的替换时不放。
+                // 例外：声音走控制连接时（老鸿蒙），手机每隔几秒就拆一次没连上的数据会话，声音却一直在放，这时不放焦点，
+                // 焦点跟着控制连接那一路的出声、停声走。
                 if (event.reason == AudioEndReason.PEER_TEARDOWN || event.reason == AudioEndReason.LISTEN_FAILED) {
-                    synchronized(lock) { focus }?.dataSessionEnded()
+                    val controlAudio = synchronized(lock) { streams.keys.any { it.dataSessionId == AudioStreamInfo.CONTROL_SESSION_ID } }
+                    if (!controlAudio) synchronized(lock) { focus }?.dataSessionEnded()
                 }
             }
             is AudioEvent.PeerClosed -> stopSession(event.stream.dataSessionId, "数据连接断开")

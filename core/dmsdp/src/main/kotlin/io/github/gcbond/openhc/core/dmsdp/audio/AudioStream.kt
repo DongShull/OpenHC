@@ -44,6 +44,11 @@ class AudioStreamInfo(
     /** `ParaAudio` 原文（只有采样参数，不含标识）。 */
     val parameters: String,
 ) {
+    companion object {
+        /** 控制连接上的声音（不走音频数据连接）在播放端用的「数据会话」号；真正的数据会话号是数字，不会撞。 */
+        const val CONTROL_SESSION_ID = "control"
+    }
+
     override fun toString() =
         "数据会话 $dataSessionId（${sampleRate}Hz / $channels 声道 / $bitsPerSample 位，编码 ${codec.label}，${transport.label}）"
 }
