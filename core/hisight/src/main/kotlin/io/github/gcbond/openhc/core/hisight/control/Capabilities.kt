@@ -78,8 +78,15 @@ internal class Capabilities(private val config: HiSightConfig) {
         return items.joinToString(";")
     }
 
-    /** 校验一次能力选择（不含触发命令）。没有 `his_video_formats` 时只更新输入选择。 */
-    fun select(fields: Map<String, String>) {
+    /**
+     * 校验一次能力选择（不含触发命令）。没有 `his_video_formats` 时只更新输入选择。
+     * 返回要写进诊断日志的说明（没有就是空表）。
+     *
+     * 音频：车机不声明投屏通道上的音频（声音走 DMSDP），但鸿蒙 4.x 的手机仍会选一种音频（2026-11 用户报告），
+     * 照常接受、把它选的值写进说明，这条连接不从投屏通道收声音。
+     */
+    fun select(fields: Map<String, String>): List<String> {
+        val notes = ArrayList<String>(1)
         if (fields.isEmpty() ||
             fields.keys.any { it !in ParameterText.CAPABILITY_FIELDS && it !in ParameterText.METADATA_FIELDS }
         ) {
@@ -87,7 +94,10 @@ internal class Capabilities(private val config: HiSightConfig) {
         }
         fields["his_version"]?.let { if (!isAcceptedVersion(it)) throw MalformedMessageException("手机版本不是 1.0 或 1.1") }
         fields["his_audio_codecs"]?.let {
-            if (it.lowercase() != "none") throw MalformedMessageException("手机选择了未声明的音频能力")
+            if (it.lowercase() != "none") {
+                val shown = it.filter { c -> c in ' '..'~' }.take(AUDIO_NOTE_MAX)
+                notes += "手机选了投屏通道上的音频「$shown」（车机没声明），照常继续；这条连接不从投屏通道收声音"
+            }
         }
 
         var events = inputEvents
@@ -140,7 +150,7 @@ internal class Capabilities(private val config: HiSightConfig) {
             inputEvents = events
             inputVendors = vendors
             sourceDeviceType = source
-            return
+            return notes
         }
         val video = ParameterText.integerFields(formats, VIDEO_FIELDS, ECHO_ONLY_VIDEO_FIELDS)
         val width = video["width"]
@@ -156,6 +166,7 @@ internal class Capabilities(private val config: HiSightConfig) {
         inputEvents = events
         inputVendors = vendors
         sourceDeviceType = source
+        return notes
     }
 
     /**
@@ -227,6 +238,9 @@ internal class Capabilities(private val config: HiSightConfig) {
     }
 
     companion object {
+        /** 说明里最多写手机选的音频值的这么多字符。 */
+        private const val AUDIO_NOTE_MAX = 120
+
         val TOUCH_EVENTS = listOf("left_point_down", "left_point_up", "left_move")
         val KEY_EVENTS = listOf("left_key_down", "left_key_up")
         const val TEXT_VENDOR = "input_content"

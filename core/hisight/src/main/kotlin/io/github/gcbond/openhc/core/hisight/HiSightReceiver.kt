@@ -340,7 +340,7 @@ class HiSightReceiver(
         requireNegotiationReady(message, out)
         if (trigger == null) {
             if (setup != null || SETUP in pending.values) throw MalformedMessageException("SETUP 之后不支持重新协商能力")
-            capabilities.select(fields)
+            for (note in capabilities.select(fields)) out += HiSightOutput.Note(note)
             out += sendControl(RtspTemplates.ok(message.cseq, date(wallClockMillis)))
             return
         }
