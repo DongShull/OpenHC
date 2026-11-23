@@ -441,7 +441,7 @@ class DmsdpSession(
         }
         if (!DmsdpMessage.looksLikeText(payload)) {
             // 手机的声音数据连接没连上时（鸿蒙 3.0 / 4.x 一直连不上），经控制连接送声音：交给扬声器拼组播放。
-            if (speaker?.onControlAudio(payload, out) == true) return
+            if (speaker?.onControlAudio(payload, nowMillis, out) == true) return
             // 其他认不出的：跳过，不断开。
             unrecognizedPayloads++
             if (unrecognizedPayloads <= UNRECOGNIZED_REPORTED || unrecognizedPayloads % UNRECOGNIZED_REPORT_EVERY == 0) {

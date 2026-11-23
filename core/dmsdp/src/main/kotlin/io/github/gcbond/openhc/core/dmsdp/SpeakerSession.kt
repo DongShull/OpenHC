@@ -70,8 +70,16 @@ internal class SpeakerSession(
 
     /** 控制连接上送来的声音（见 [ControlChannelAudio]）：拼组、按一路声音交出；参数在第一组时定下。 */
     private val controlAudio = ControlChannelAudio()
-    private var controlStream: AudioStreamInfo? = null
-    private var controlPacket: AudioPacket? = null
+
+    /** 控制连接上的一路声音：各用各的播放端会话号和包。 */
+    private class ControlStream(val info: AudioStreamInfo, val packet: AudioPacket) {
+        var groups = 0L
+        var lastMillis = 0L
+    }
+
+    /** 控制连接上的各路声音，键是片头里的流号。 */
+    private val controlStreams = LinkedHashMap<Long, ControlStream>()
+    private var controlStreamsCreated = 0
 
     private inner class Stream(val info: AudioStreamInfo) {
         /** 数据端口；0 表示还没开好（SETUP 还没发）。 */
@@ -244,28 +252,50 @@ internal class SpeakerSession(
      * 控制连接上的一条非文本载荷：是声音片就拼组、拼成一组按一路声音交出（和数据会话的声音一样路由、计入 PCM 判定），
      * 返回 true；不是返回 false，由调用方按别的消息处理。
      */
-    fun onControlAudio(payload: ByteArray, out: DmsdpSession.Outputs): Boolean {
+    fun onControlAudio(payload: ByteArray, nowMillis: Long, out: DmsdpSession.Outputs): Boolean {
         var recognized = false
         using(out) {
-            recognized = controlAudio.feed(payload) { data, offset, length -> emitControlPcm(data, offset, length) }
+            recognized = controlAudio.feed(payload) { stream, data, offset, length -> emitControlPcm(stream, data, offset, length, nowMillis) }
         }
         return recognized
     }
 
-    private fun emitControlPcm(data: ByteArray, offset: Int, length: Int) {
-        val info = controlStream ?: run {
-            // 采样参数按手机最近一次声音请求（ParaAudio）；还没请求过时按实机的 48 kHz 双声道 16 位。
-            val basis = current?.info
-            AudioStreamInfo(
-                CONTROL_SESSION_ID, basis?.sampleRate ?: CONTROL_SAMPLE_RATE, basis?.channels ?: CONTROL_CHANNELS, PCM_BITS,
-                null, AudioCodec.PCM, AudioTransport.TCP, "经控制连接",
-            ).also {
-                controlStream = it
-                note(it, "手机经控制连接送声音（没走音频数据连接），按 ${it.sampleRate}Hz / ${it.channels} 声道 / 16 位小端 PCM 放")
-            }
+    /**
+     * 这个流号对应的一路声音。新流号出现时：已有某一路停了 [CONTROL_IDLE_REUSE_MS] 以上，就当成那一路换了号、接着用它的
+     * 播放器；否则另开一路（同时放的两路声音各用各的播放器，播放端混音）。
+     */
+    private fun controlStreamFor(stream: Long, nowMillis: Long): ControlStream {
+        controlStreams[stream]?.let { return it }
+        val idle = controlStreams.entries.firstOrNull { nowMillis - it.value.lastMillis >= CONTROL_IDLE_REUSE_MS }
+        if (idle != null) {
+            controlStreams.remove(idle.key)
+            controlStreams[stream] = idle.value
+            return idle.value
         }
-        val packet = controlPacket ?: AudioPacket(info).also { controlPacket = it }
-        packet.sequence = controlAudio.groups.toInt()
+        if (controlStreams.size >= ControlChannelAudio.MAX_STREAMS) controlStreams.remove(controlStreams.keys.first())
+        val number = ++controlStreamsCreated
+        // 采样参数按手机最近一次声音请求（ParaAudio）；还没请求过时按实机的 48 kHz 双声道 16 位。
+        val basis = current?.info
+        val info = AudioStreamInfo(
+            if (number == 1) CONTROL_SESSION_ID else "$CONTROL_SESSION_ID-$number",
+            basis?.sampleRate ?: CONTROL_SAMPLE_RATE, basis?.channels ?: CONTROL_CHANNELS, PCM_BITS,
+            null, AudioCodec.PCM, AudioTransport.TCP, "经控制连接",
+        )
+        note(
+            info,
+            (if (number == 1) "手机经控制连接送声音（没走音频数据连接）" else "手机经控制连接同时送第 $number 路声音（和其他路分开拼、分开放）") +
+                "，按 ${info.sampleRate}Hz / ${info.channels} 声道 / 16 位小端 PCM 放",
+        )
+        return ControlStream(info, AudioPacket(info)).also { controlStreams[stream] = it }
+    }
+
+    private fun emitControlPcm(stream: Long, data: ByteArray, offset: Int, length: Int, nowMillis: Long) {
+        val control = controlStreamFor(stream, nowMillis)
+        control.groups++
+        control.lastMillis = nowMillis
+        val info = control.info
+        val packet = control.packet
+        packet.sequence = control.groups.toInt()
         packet.codec = AudioCodec.PCM
         packet.playable = true
         packet.byteOrder = PcmByteOrder.LITTLE_ENDIAN
@@ -273,11 +303,11 @@ internal class SpeakerSession(
         packet.offset = offset
         packet.length = length
         packet.route = router.route(packet.bus, packet.usage)
-        if (controlAudio.groups == 1L) emit(AudioEvent.FirstPacket(info, packet.payloadType, length))
-        if (controlAudio.groups <= CONTROL_GROUPS_NOTED) {
+        if (control.groups == 1L) emit(AudioEvent.FirstPacket(info, packet.payloadType, length))
+        if (control.groups <= CONTROL_GROUPS_NOTED) {
             // 组头长度各版本不同：前几组记下用了多长的组头和组开头的字节，出问题时对照（只有长度、时间戳和 PCM，没有标识）。
             val head = data.copyOf(minOf(offset + length, CONTROL_GROUP_HEAD_SHOWN)).toHex()
-            note(info, "控制连接声音第 ${controlAudio.groups} 组：组头 $offset 字节、PCM $length 字节，开头 $head")
+            note(info, "控制连接声音第 ${control.groups} 组：组头 $offset 字节、PCM $length 字节，开头 $head")
         }
         check?.onPacket(AudioCodec.PCM, true)?.let { verdict(it) }
         guard("onAudioPacket") { listener.onAudioPacket(packet) }
@@ -500,6 +530,9 @@ internal class SpeakerSession(
 
         /** 控制连接声音前几组写说明、每组写开头多少字节。 */
         private const val CONTROL_GROUPS_NOTED = 3L
+
+        /** 新流号出现时，停了这么久的那一路当成换了号，接着用它的播放器。 */
+        private const val CONTROL_IDLE_REUSE_MS = 1_000L
         private const val CONTROL_GROUP_HEAD_SHOWN = 32
 
         /** 数据会话消息里扬声器的服务类型（服务声明里是 4，这里是 3）。 */

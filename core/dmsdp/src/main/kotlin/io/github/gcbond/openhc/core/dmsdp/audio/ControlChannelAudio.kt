@@ -5,7 +5,8 @@ package io.github.gcbond.openhc.core.dmsdp.audio
  * 纯血鸿蒙在数据连接连上之前也会先送一点。
  *
  * 一片的格式（多字节整数大端）：
- * - 0：`#`；1～4：手机的音频数据会话号（每次连接都变），不用；
+ * - 0：`#`；1～4：流号（手机的一个音频数据会话号，每次连接都变）。同时放两路声音（例如导航和音乐）时两路的流号不同、
+ *   各片交替到达，按流号分开拼；
  * - 5～8：固定 [MAGIC]；
  * - 9：这一片在组里的位置：1 = 首片，2 = 中间片，3 = 末片（一组 3 片时是 1、2、3，6 片时是 1、2、2、2、2、3）；
  * - 10～13：组号，同一组的各片相同；14～15：片序号，每组从 0 起逐片加一；
@@ -19,9 +20,21 @@ package io.github.gcbond.openhc.core.dmsdp.audio
  * 纯逻辑，非线程安全。
  */
 internal class ControlChannelAudio {
-    private var sequence = -1L
-    private var count = 0
-    private val buffer = java.io.ByteArrayOutputStream()
+    /** 一路声音正在拼的组。 */
+    private class Assembly {
+        var sequence = -1L
+        var count = 0
+        val buffer = java.io.ByteArrayOutputStream()
+
+        fun reset() {
+            sequence = -1
+            count = 0
+            buffer.reset()
+        }
+    }
+
+    /** 各路正在拼的组，键是流号；最多 [MAX_STREAMS] 路，再多丢掉最早出现的那路。 */
+    private val assemblies = LinkedHashMap<Long, Assembly>()
 
     /** 认出过的片数、拼成的组数、丢掉的组数（诊断用）。 */
     var fragments = 0L
@@ -32,35 +45,40 @@ internal class ControlChannelAudio {
         private set
 
     /**
-     * 喂入一条控制载荷。是这种声音片就返回 true；拼成一组时先调 [onPcm]（数据只在回调期间有效）。
+     * 喂入一条控制载荷。是这种声音片就返回 true；某一路拼成一组时先调 [onPcm]（参数是流号和 PCM，数据只在回调期间有效）。
      */
-    fun feed(payload: ByteArray, onPcm: (data: ByteArray, offset: Int, length: Int) -> Unit): Boolean {
+    fun feed(payload: ByteArray, onPcm: (stream: Long, data: ByteArray, offset: Int, length: Int) -> Unit): Boolean {
         if (payload.size < HEADER || u32(payload, MAGIC_AT) != MAGIC) return false
         val position = payload[POSITION_AT].toInt() and 0xFF
         val length = u16(payload, 16)
         if (position !in FIRST..LAST || length != payload.size - HEADER) return false
         fragments++
+        val stream = u32(payload, STREAM_AT)
+        val a = assemblies[stream] ?: Assembly().also {
+            if (assemblies.size >= MAX_STREAMS) assemblies.remove(assemblies.keys.first())
+            assemblies[stream] = it
+        }
         val seq = u32(payload, 10)
         val index = u16(payload, 14)
         if (index == 0) {
-            if (count > 0) dropped++
-            reset()
-            sequence = seq
-        } else if (count == 0 || seq != sequence || index != count) {
-            if (count > 0) dropped++
-            reset()
+            if (a.count > 0) dropped++
+            a.reset()
+            a.sequence = seq
+        } else if (a.count == 0 || seq != a.sequence || index != a.count) {
+            if (a.count > 0) dropped++
+            a.reset()
             return true
         }
-        buffer.write(payload, HEADER, length)
-        count++
-        if (count > MAX_FRAGMENTS || buffer.size() > MAX_GROUP_BYTES) {
+        a.buffer.write(payload, HEADER, length)
+        a.count++
+        if (a.count > MAX_FRAGMENTS || a.buffer.size() > MAX_GROUP_BYTES) {
             dropped++
-            reset()
+            a.reset()
             return true
         }
         if (position != LAST) return true
-        val group = buffer.toByteArray()
-        reset()
+        val group = a.buffer.toByteArray()
+        a.reset()
         val header = GROUP_HEADERS.firstOrNull { it < group.size && u32(group, it - 4) == group.size.toLong() }
         val pcm = if (header == null) 0 else group.size - header
         if (header == null || pcm % 2 != 0) {
@@ -68,14 +86,8 @@ internal class ControlChannelAudio {
             return true
         }
         groups++
-        onPcm(group, header, pcm)
+        onPcm(stream, group, header, pcm)
         return true
-    }
-
-    private fun reset() {
-        sequence = -1
-        count = 0
-        buffer.reset()
     }
 
     private fun u16(b: ByteArray, at: Int) = ((b[at].toInt() and 0xFF) shl 8) or (b[at + 1].toInt() and 0xFF)
@@ -97,6 +109,10 @@ internal class ControlChannelAudio {
         const val MAX_FRAGMENTS = 32
         const val MAX_GROUP_BYTES = 64 * 1024
 
+        /** 同时拼的声音最多几路。 */
+        const val MAX_STREAMS = 4
+
+        private const val STREAM_AT = 1
         private const val MAGIC_AT = 5
         private const val POSITION_AT = 9
         private const val FIRST = 1

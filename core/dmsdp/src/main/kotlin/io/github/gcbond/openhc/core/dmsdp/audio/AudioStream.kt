@@ -45,7 +45,7 @@ class AudioStreamInfo(
     val parameters: String,
 ) {
     companion object {
-        /** 控制连接上的声音（不走音频数据连接）在播放端用的「数据会话」号；真正的数据会话号是数字，不会撞。 */
+        /** 控制连接上的声音（不走音频数据连接）在播放端用的「数据会话」号（第二路起加后缀）；真正的数据会话号是数字，不会撞。 */
         const val CONTROL_SESSION_ID = "control"
     }
 

@@ -17,14 +17,14 @@ class ControlChannelAudioTest {
         return head + pcm
     }
 
-    /** 把一组切成 [parts] 片，每片带 18 字节片头；位置标记首片 1、末片 3、其余 2。会话号用合成值。 */
-    private fun fragments(seq: Long, whole: ByteArray, parts: Int): List<ByteArray> {
+    /** 把一组切成 [parts] 片，每片带 18 字节片头；位置标记首片 1、末片 3、其余 2。流号用合成值。 */
+    private fun fragments(seq: Long, whole: ByteArray, parts: Int, stream: Long = 0x51525354): List<ByteArray> {
         val size = (whole.size + parts - 1) / parts
         return (0 until parts).map { i ->
             val data = whole.copyOfRange(i * size, minOf(whole.size, (i + 1) * size))
             val h = ByteArray(ControlChannelAudio.HEADER)
             h[0] = '#'.code.toByte()
-            for (k in 1..4) h[k] = (0x50 + k).toByte()
+            for (k in 0 until 4) h[1 + k] = (stream shr (24 - 8 * k)).toByte()
             for (k in 0 until 4) h[5 + k] = (ControlChannelAudio.MAGIC shr (24 - 8 * k)).toByte()
             h[9] = when (i) {
                 parts - 1 -> 3
@@ -44,7 +44,7 @@ class ControlChannelAudioTest {
 
     private fun collect(audio: ControlChannelAudio, input: List<ByteArray>): List<ByteArray> {
         val out = ArrayList<ByteArray>()
-        for (f in input) assertTrue(audio.feed(f) { d, o, l -> out += d.copyOfRange(o, o + l) })
+        for (f in input) assertTrue(audio.feed(f) { _, d, o, l -> out += d.copyOfRange(o, o + l) })
         return out
     }
 
@@ -72,11 +72,26 @@ class ControlChannelAudioTest {
         assertEquals(0, audio.dropped)
     }
 
+    /** 两路声音（流号不同）的片交替到达：各拼各的，都不丢。 */
+    @Test
+    fun interleavedStreamsAreAssembledSeparately() {
+        val audio = ControlChannelAudio()
+        val music = fragments(5, group(pcm(2048, 7), 18), 6, stream = 0x11111111)
+        val guide = fragments(9, group(pcm(1024, 8)), 3, stream = 0x22222222)
+        val order = listOf(music[0], guide[0], music[1], music[2], guide[1], music[3], guide[2], music[4], music[5])
+        val out = ArrayList<Pair<Long, ByteArray>>()
+        for (f in order) assertTrue(audio.feed(f) { stream, d, o, l -> out += stream to d.copyOfRange(o, o + l) })
+        assertEquals(listOf(0x22222222L, 0x11111111L), out.map { it.first })
+        assertContentEquals(pcm(1024, 8), out[0].second)
+        assertContentEquals(pcm(2048, 7), out[1].second)
+        assertEquals(0, audio.dropped)
+    }
+
     @Test
     fun missingOrShuffledFragmentsDropTheGroupButKeepGoing() {
         val audio = ControlChannelAudio()
         val out = ArrayList<ByteArray>()
-        val sink: (ByteArray, Int, Int) -> Unit = { d, o, l -> out += d.copyOfRange(o, o + l) }
+        val sink: (Long, ByteArray, Int, Int) -> Unit = { _, d, o, l -> out += d.copyOfRange(o, o + l) }
         val first = fragments(7, group(pcm(256, 3)), 3)
         val second = fragments(8, group(pcm(256, 4)), 3)
         // 第 7 组缺中间一片：认得出，但拼不成。
@@ -103,7 +118,7 @@ class ControlChannelAudioTest {
     @Test
     fun otherPayloadsAreNotRecognized() {
         val audio = ControlChannelAudio()
-        val sink: (ByteArray, Int, Int) -> Unit = { _, _, _ -> error("不该交出") }
+        val sink: (Long, ByteArray, Int, Int) -> Unit = { _, _, _, _ -> error("不该交出") }
         val ok = fragments(1, group(pcm(16, 6)), 1).single()
         assertFalse(audio.feed(ok.copyOf(ControlChannelAudio.HEADER - 1), sink), "太短")
         assertFalse(audio.feed(ok.copyOf().also { it[17] = (it[17] + 1).toByte() }, sink), "长度字段对不上")
