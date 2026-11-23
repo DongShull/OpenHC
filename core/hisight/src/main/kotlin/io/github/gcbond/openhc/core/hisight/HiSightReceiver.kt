@@ -68,6 +68,7 @@ class HiSightReceiver(
     private var started = false
     private var cryptoReady = false
     private var optionsReceived = false
+    private var contentTypeNoted = false
     private var optionsSkipNoted = false
     private var lastCseq = 0
     private var setup: MediaSetup? = null
@@ -278,40 +279,47 @@ class HiSightReceiver(
      * 不是标准格式时把正文交出来写日志（[HiSightOutput.Note]）；仍然拒绝时把正文带进报错（屏幕上的「协议错误」里能看到）。
      */
     private fun handleAnnounce(message: RtspMessage, out: MutableList<HiSightOutput>, wallClockMillis: Long) {
-        if (cryptoReady || !message.isTextParameters) {
-            throw MalformedMessageException("ANNOUNCE 重复或类型不是 text/parameters")
-        }
+        if (cryptoReady) throw MalformedMessageException("ANNOUNCE 重复")
         if (message.body.any { it < 0 }) throw MalformedMessageException("加密选择正文含非 ASCII 字节（${message.body.size} 字节）")
         val text = String(message.body, Charsets.US_ASCII)
         val lines = text.split('\n').map { ParameterText.trimSpaceTab(it.removeSuffix("\r")) }.filter { it.isNotEmpty() }
-        val line = lines.firstOrNull { ParameterText.trimSpaceTab(it.substringBefore(':', "")) == "encrypt_description" }
-            ?: throw MalformedMessageException("加密选择缺少 encrypt_description：${visible(text)}")
+        // 加密选择一般是正文里 `encrypt_description: …` 这一行；没有这一行时退到头部同名字段，再退到整段正文。
+        val line = lines.firstOrNull { ParameterText.trimSpaceTab(it.substringBefore(':', "")).lowercase() == "encrypt_description" }
+            ?.substringAfter(':')
+            ?: message.header("encrypt_description")
+            ?: lines.joinToString(";")
         val fields = LinkedHashMap<String, String>()
-        for (item in line.substringAfter(':').split(';')) {
+        for (item in line.split(';')) {
             val eq = item.indexOf('=')
             if (eq < 0) continue
-            val name = ParameterText.trimSpaceTab(item.substring(0, eq))
-            // 不用 putIfAbsent：低版本安卓没有。同名字段取第一个。
-            if (name !in fields) fields[name] = ParameterText.trimSpaceTab(item.substring(eq + 1))
+            val name = ParameterText.trimSpaceTab(item.substring(0, eq)).lowercase()
+            // 不用 putIfAbsent：低版本安卓没有。同名字段取第一个；值两端成对的引号去掉。
+            if (name !in fields) fields[name] = unquote(ParameterText.trimSpaceTab(item.substring(eq + 1)))
         }
-        val ciphers = fields["encrypt_list"].orEmpty().split(',').map { ParameterText.trimSpaceTab(it).lowercase() }
+        val ciphers = fields["encrypt_list"].orEmpty().split(',', ' ').map { ParameterText.trimSpaceTab(it).lowercase() }
+        if (AES128CTR !in ciphers) throw MalformedMessageException("加密选择里没有 aes128ctr：${visible(text)}")
         val version = fields["version"]
-        if (AES128CTR !in ciphers || (version != null && version != "1")) {
-            throw MalformedMessageException("只支持 aes128ctr / version 1 的加密选择：${visible(text)}")
+        // 加密版本决定密钥和计数器的用法，本端只实现了 1：别的版本放过去也解不开，直接报错。
+        if (version != null && version != "1" && version != "1.0") {
+            throw MalformedMessageException("只支持 version 1 的加密选择：${visible(text)}")
         }
-        val standard = lines.size == 1 && text.endsWith("\r\n") && countCrlf(text) == 1 &&
-            fields.keys == setOf("encrypt_list", "version") && ciphers == listOf(AES128CTR)
+        val standard = lines.size == 1 && text.endsWith("\r\n") && countCrlf(text) == 1 && message.isTextParameters &&
+            fields.keys == setOf("encrypt_list", "version") && ciphers == listOf(AES128CTR) && version == "1"
         if (!standard) out += HiSightOutput.Note("手机的加密选择不是标准的一行格式，已按宽松规则接受：${visible(text)}")
         out += sendControl(RtspTemplates.ok(message.cseq, date(wallClockMillis)))
         cryptoReady = true
     }
 
     private fun handleOptions(message: RtspMessage, out: MutableList<HiSightOutput>, wallClockMillis: Long) {
-        if (!cryptoReady || message.body.isNotEmpty() || optionsReceived) {
-            throw MalformedMessageException("OPTIONS 早于加密协商、带正文或重复")
-        }
         val date = date(wallClockMillis)
-        out += sendControl(RtspTemplates.ok(message.cseq, date, withPublic = true))
+        if (!cryptoReady || message.body.isNotEmpty() || optionsReceived) {
+            // 早于加密、带正文或重复的 OPTIONS 也照常回 200；本端的 OPTIONS 只发一次。
+            out += HiSightOutput.Note("手机的 OPTIONS 早于加密协商、带正文或重复，照常回 200")
+            out += sendControl(RtspTemplates.ok(message.cseq, date, withPublic = true))
+            if (optionsReceived || !cryptoReady) return
+        } else {
+            out += sendControl(RtspTemplates.ok(message.cseq, date, withPublic = true))
+        }
         val cseq = nextCseq()
         out += sendControl(RtspTemplates.options(cseq, date))
         pending[cseq] = OPTIONS
@@ -338,7 +346,7 @@ class HiSightReceiver(
         if (trigger == "TEARDOWN") {
             if (!cryptoReady) throw MalformedMessageException("结束触发早于加密协商")
             if (!message.isTextParameters || fields.size != 1) {
-                throw MalformedMessageException("结束触发必须是单独的 text/parameters 正文")
+                out += HiSightOutput.Note("手机的结束触发不是单独的 text/parameters 正文，照常结束")
             }
             out += sendControl(RtspTemplates.ok(message.cseq, date(wallClockMillis)))
             terminate(HiSightEndReason.PEER_TEARDOWN, out, sendTeardown = true, releaseInputs = true)
@@ -350,6 +358,11 @@ class HiSightReceiver(
                 out += HiSightOutput.Note(
                     "投屏开始后手机又发来能力选择，不重新协商、照常回 200：${visible(String(message.body, Charsets.UTF_8), SELECTION_NOTE_MAX_CHARS)}",
                 )
+                out += sendControl(RtspTemplates.ok(message.cseq, date(wallClockMillis)))
+                return
+            }
+            if (fields.isEmpty()) {
+                out += HiSightOutput.Note("手机的设置消息里没有认得出的能力参数，照常回 200")
                 out += sendControl(RtspTemplates.ok(message.cseq, date(wallClockMillis)))
                 return
             }
@@ -366,7 +379,7 @@ class HiSightReceiver(
             return
         }
         if (setup != null || SETUP in pending.values) throw MalformedMessageException("重复的 SETUP 触发")
-        if (capabilities.selection == null) throw MalformedMessageException("SETUP 前缺少视频参数选择")
+        if (capabilities.selection == null) out += HiSightOutput.Note(capabilities.selectDeclared())
         out += sendControl(RtspTemplates.ok(message.cseq, date(wallClockMillis)))
         val cseq = nextCseq()
         out += sendControl(RtspTemplates.setup(cseq))
@@ -375,7 +388,9 @@ class HiSightReceiver(
 
     private fun handleSetupResponse(message: RtspMessage, out: MutableList<HiSightOutput>) {
         val ports = parseTransport(message.header("transport") ?: "")
-        val media = capabilities.mediaSetup(ports.serverPort, ports.remoteControlPort)
+        val setupNotes = ArrayList<String>(0)
+        val media = capabilities.mediaSetup(ports.serverPort, ports.remoteControlPort, setupNotes)
+        for (note in setupNotes) out += HiSightOutput.Note(note)
         setup = media
         if (media.inputEvents.isNotEmpty() || media.inputVendors.isNotEmpty()) {
             synchronized(inputLock) {
@@ -441,8 +456,9 @@ class HiSightReceiver(
             optionsSkipNoted = true
             out += HiSightOutput.Note("手机没发 OPTIONS，加密选择之后直接发了 ${RtspParser.requestMethod(message.firstLine)}，照常应答")
         }
-        if (message.body.isNotEmpty() && !message.isTextParameters) {
-            throw MalformedMessageException("能力正文缺少 text/parameters 类型")
+        if (message.body.isNotEmpty() && !message.isTextParameters && !contentTypeNoted) {
+            contentTypeNoted = true
+            out += HiSightOutput.Note("手机的能力消息正文类型不是 text/parameters，照常按参数读")
         }
     }
 
@@ -471,6 +487,9 @@ class HiSightReceiver(
         val shown = text.replace(LONG_TOKEN) { "<隐去 ${it.value.length} 字符>" }.replace("\r", "\\r").replace("\n", "\\n")
         return if (shown.length <= max) shown else shown.take(max) + "…（共 ${text.length} 字符）"
     }
+
+    private fun unquote(value: String): String =
+        if (value.length >= 2 && (value[0] == '"' || value[0] == '\'') && value.last() == value[0]) value.substring(1, value.length - 1) else value
 
     private fun countCrlf(text: String): Int {
         var count = 0

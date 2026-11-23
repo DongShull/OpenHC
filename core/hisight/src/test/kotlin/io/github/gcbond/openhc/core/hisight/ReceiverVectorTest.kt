@@ -40,9 +40,6 @@ class ReceiverVectorTest {
 
         for ((index, stepElement) in conversation.arr("steps").withIndex()) {
             val step = stepElement.jsonObject
-            // 有意的差异：投屏期间手机的其它触发命令（PLAY 等）、SETUP 之后再来的能力选择，参考实现报错结束，
-            // 本实现照原厂车机回 200、写说明、继续（见 HiSightReceiverTest）。这两段只核对到这一步之前。
-            if (name in LENIENT_AFTER && "error" in step && step.bool("error")) return
             val label = "$name 第 $index 步 ${step.str("op")}"
             val expected = step.arr("out").map { it.jsonPrimitive.content }
             expectedWire += expected
@@ -53,7 +50,12 @@ class ReceiverVectorTest {
                     val referenceError = step.bool("error")
                     try {
                         val out = session.feedControl(chunk, 0, chunk.size, wall)
-                        assertEquals(false, referenceError, "$label：参考实现报错，本实现没有")
+                        if (referenceError) {
+                            // 有意的差异：参考实现在这一步报错结束，本实现回应答、写说明、继续（手机各版本的写法不同，
+                            // 见 HiSightReceiverTest）。必须留下说明；这段对话只核对到这一步之前。
+                            assertTrue(out.any { it is HiSightOutput.Note }, "$label：参考实现报错，本实现放行却没写说明")
+                            return
+                        }
                         out
                     } catch (e: MalformedMessageException) {
                         assertEquals(true, referenceError, "$label：本实现报错（${e.message}），参考实现没有")
@@ -133,8 +135,4 @@ class ReceiverVectorTest {
         assertEquals(emptyList(), session.feedControl(ByteArray(4), 0, 4, 0))
     }
 
-    private companion object {
-        /** 参考实现在某一步报错、本实现有意放行的对话（见 [replay] 里的说明）。 */
-        val LENIENT_AFTER = setOf("trigger-play", "select-then-renegotiate")
-    }
 }

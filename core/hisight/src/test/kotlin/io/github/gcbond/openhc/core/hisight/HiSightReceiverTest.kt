@@ -140,10 +140,12 @@ class HiSightReceiverTest {
         val phone = Phone()
         val config = HiSightConfig(640, 480, 640, 480, 30, 160, touchInput = true)
         val s = session(config)
-        assertFailsWith<MalformedMessageException> {
-            negotiate(s, phone, "RTP/AVP/TCP;unicast;server_port=5000",
-                uibc = "input_category_list=GENERIC;generic_cap_list=left_point_down, left_point_up, left_move;")
-        }
+        // 声明了触摸、手机没给回控端口：不断开，这次不能触控，写一条说明。
+        val out = negotiate(s, phone, "RTP/AVP/TCP;unicast;server_port=5000",
+            uibc = "input_category_list=GENERIC;generic_cap_list=left_point_down, left_point_up, left_move;")
+        assertTrue(out.filterIsInstance<HiSightOutput.Note>().any { "回控端口" in it.text })
+        assertEquals(false, out.filterIsInstance<HiSightOutput.StreamNegotiated>().single().touchInput)
+        assertTrue(out.none { it is HiSightOutput.Connect && it.channel == HiSightChannel.REMOTE_CONTROL })
         assertFailsWith<IllegalStateException> { session().sendInput(HiSightInput.Text("A")) }
     }
 
