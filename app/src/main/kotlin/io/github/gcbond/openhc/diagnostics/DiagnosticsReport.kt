@@ -1,5 +1,7 @@
 package io.github.gcbond.openhc.diagnostics
 
+import java.util.Locale
+
 /** 诊断日志文件的组成（纯逻辑，JVM 单元测试覆盖）：文件名、开头的说明和摘要、各段的标题。 */
 internal object DiagnosticsReport {
     /** 存到「下载」里的子文件夹名。 */
@@ -36,7 +38,44 @@ internal object DiagnosticsReport {
         return m.groupValues[1] == pid
     }
 
+    /**
+     * OpenHC 自己的一条日志写成 `logcat -v threadtime` 的格式（和读 logcat 记下的行一样），多行的消息和堆栈每行都带前缀。
+     * [time] 形如 `01-02 03:04:05.678`；[priority] 是安卓日志级别（2 VERBOSE ～ 7 ASSERT）。
+     */
+    fun ownLines(time: String, pid: Int, tid: Int, priority: Int, tag: String, message: String, stack: String?): List<String> {
+        val prefix = String.format(Locale.US, "%s %5d %5d %c %s: ", time, pid, tid, levelChar(priority), tag)
+        val text = if (stack.isNullOrBlank()) message else message + "\n" + stack.trimEnd()
+        return text.split('\n').map { prefix + it.removeSuffix("\r") }
+    }
+
+    /**
+     * `logcat` 读到的这一行是不是 OpenHC 自己的日志（已经直接记过，读 logcat 时跳过，免得记两遍）：标签是 `OpenHC` 或
+     * `OpenHC-…`。内核的权限拒绝记录（`type=1400 audit…`）会拿线程名当标签，本应用的线程名也是 `OpenHC-…`，那些不是
+     * 自己打的，照记。
+     */
+    fun writtenDirectly(line: String): Boolean {
+        val m = THREADTIME_TAG.find(line) ?: return false
+        val tag = m.groupValues[1]
+        if (tag != OWN_TAG && !tag.startsWith("$OWN_TAG-")) return false
+        return !m.groupValues[2].startsWith("type=1400")
+    }
+
+    private fun levelChar(priority: Int): Char = when (priority) {
+        2 -> 'V'
+        3 -> 'D'
+        4 -> 'I'
+        5 -> 'W'
+        6 -> 'E'
+        7 -> 'A'
+        else -> '?'
+    }
+
+    private const val OWN_TAG = "OpenHC"
+
     private val THREADTIME_PID = Regex("^\\d\\d-\\d\\d \\d\\d:\\d\\d:\\d\\d\\.\\d+\\s+(\\d+)\\s+\\d+\\s")
+
+    /** threadtime 行里的标签和消息；短标签 logcat 会在冒号前补空格。 */
+    private val THREADTIME_TAG = Regex("^\\d\\d-\\d\\d \\d\\d:\\d\\d:\\d\\d\\.\\d+\\s+\\d+\\s+\\d+ [VDIWEFAS] (.+?)\\s*: ?(.*)$")
 
     /** 冒号分隔的 6 段地址；前后紧挨着别的十六进制段的不算（例如更长的 IPv6 地址）。 */
     private val MAC = Regex("(?<![0-9A-Fa-f])(?<![0-9A-Fa-f]:)[0-9A-Fa-f]{2}(?::[0-9A-Fa-f]{2}){5}(?!:?[0-9A-Fa-f])")

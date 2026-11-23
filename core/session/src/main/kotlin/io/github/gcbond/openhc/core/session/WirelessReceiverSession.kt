@@ -584,6 +584,9 @@ class WirelessReceiverSession internal constructor(
      * 报给手机的是平台交回的热点频率（读不到真实信道的平台交回推测值），热点还没开好就等开好再回。
      */
     private fun onDataChannelRequest(request: BluetoothOutput.DataChannelRequest, nowMillis: Long, out: Out) {
+        if (request.capability.unparsedFrom != null && negotiatedFrequency == 0) {
+            diag(SessionLayer.SESSION, "手机报的 WiFi 能力没有全解开，只用解开的部分：${request.capability}", out)
+        }
         when {
             !authSucceeded -> refuse(request, DataChannelRefusal.BUSY, "认证完成之前收到数据通道协商请求", nowMillis, out)
             request.dataChannel != NearbySession.CHANNEL_WIFI ->

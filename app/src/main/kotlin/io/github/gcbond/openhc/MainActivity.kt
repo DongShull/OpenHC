@@ -7,7 +7,6 @@ import android.content.pm.PackageManager
 import android.hardware.usb.UsbManager
 import android.os.Build
 import android.os.Bundle
-import android.util.Log
 import android.widget.Toast
 import androidx.activity.ComponentActivity
 import androidx.activity.compose.BackHandler
@@ -32,6 +31,7 @@ import io.github.gcbond.openhc.connection.ConnectionController
 import io.github.gcbond.openhc.connection.DeviceInfo
 import io.github.gcbond.openhc.connection.Notice
 import io.github.gcbond.openhc.connection.Phase
+import io.github.gcbond.openhc.platform.log.Log
 import io.github.gcbond.openhc.platform.net.VpnConsent
 import io.github.gcbond.openhc.settings.AppSettings
 import io.github.gcbond.openhc.settings.AudioPreferences

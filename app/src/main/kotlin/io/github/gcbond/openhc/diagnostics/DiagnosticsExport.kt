@@ -11,6 +11,7 @@ import io.github.gcbond.openhc.BuildConfig
 import io.github.gcbond.openhc.IdentityLoader
 import io.github.gcbond.openhc.connection.DeviceInfo
 import io.github.gcbond.openhc.connection.UsbAutoConnect
+import io.github.gcbond.openhc.settings.AppSettings
 import io.github.gcbond.openhc.settings.WirelessPreferences
 import io.github.gcbond.openhc.startup.BootStart
 import io.github.gcbond.openhc.wireless.WirelessPermissions
@@ -122,6 +123,7 @@ internal object DiagnosticsExport {
             "车机" to "${Build.MANUFACTURER} / ${Build.BRAND} / ${Build.MODEL}（${Build.DEVICE}，${Build.HARDWARE}）",
             "固件" to Build.DISPLAY,
             "屏幕" to "${metrics.widthPixels}x${metrics.heightPixels}，${metrics.densityDpi} dpi",
+            "界面大小" to "${AppSettings(app).uiScalePercent}%",
             "连接参数" to if (IdentityLoader.load(app) is IdentityLoader.Result.Loaded) "已带" else "缺",
             "系统读得到车机蓝牙地址" to yesNo(DeviceInfo.systemBluetoothAddress() != null),
             "只用数据线连接" to yesNo(wireless.wiredOnly),

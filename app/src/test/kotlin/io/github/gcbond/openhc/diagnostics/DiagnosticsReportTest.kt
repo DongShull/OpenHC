@@ -52,6 +52,51 @@ class DiagnosticsReportTest {
     }
 
     @Test
+    fun ownLogLinesLookLikeLogcatThreadtime() {
+        assertEquals(
+            listOf("01-02 03:04:05.678  4321  4400 I OpenHC-Wireless: 状态 IDLE/null → PREPARING/null"),
+            DiagnosticsReport.ownLines("01-02 03:04:05.678", 4321, 4400, 4, "OpenHC-Wireless", "状态 IDLE/null → PREPARING/null", null),
+        )
+        // 自己写的行和读 logcat 记下的行用同一套规则认进程。
+        val line = DiagnosticsReport.ownLines("01-02 03:04:05.678", 4321, 4400, 5, "OpenHC-App", "x", null).single()
+        assertTrue(DiagnosticsReport.fromProcess(line, "4321"))
+        assertTrue(DiagnosticsReport.writtenDirectly(line))
+    }
+
+    @Test
+    fun multiLineMessagesAndStacksRepeatThePrefix() {
+        val lines = DiagnosticsReport.ownLines(
+            "01-02 03:04:05.678", 12, 34567, 6, "OpenHC-Audio", "第一行\r\n第二行", "java.io.IOException: 断了\n\tat a.b(c.kt:1)\n",
+        )
+        assertEquals(
+            listOf(
+                "01-02 03:04:05.678    12 34567 E OpenHC-Audio: 第一行",
+                "01-02 03:04:05.678    12 34567 E OpenHC-Audio: 第二行",
+                "01-02 03:04:05.678    12 34567 E OpenHC-Audio: java.io.IOException: 断了",
+                "01-02 03:04:05.678    12 34567 E OpenHC-Audio: \tat a.b(c.kt:1)",
+            ),
+            lines,
+        )
+    }
+
+    @Test
+    fun logcatSkipsOnlyWhatWasWrittenDirectly() {
+        assertTrue(DiagnosticsReport.writtenDirectly("01-02 03:04:05.678  4321  4400 I OpenHC-Wireless: 蓝牙连上：启用"))
+        assertTrue(DiagnosticsReport.writtenDirectly("01-02 03:04:05.678  4321  4400 W OpenHC  : 短标签补了空格"))
+        assertTrue(DiagnosticsReport.writtenDirectly("01-02 03:04:05.678  4321  4400 E OpenHC-App:"))
+        // 系统在本进程里打的、标签只是开头像的、内核拿线程名当标签的权限拒绝记录：照记。
+        val kept = listOf(
+            "01-02 03:04:05.678  4321  4410 D BluetoothSocket: close() channel: 5",
+            "01-02 03:04:05.678  4321  4411 I GlDriver: build info",
+            "01-02 03:04:05.678  4321  4400 I OpenHCX: 不是自己的标签",
+            "01-02 03:04:05.678  4321  4321 I OpenHC-Hotspot: type=1400 audit(0.0:100): avc:  denied  { read }",
+            "--------- beginning of main",
+            "===== 01-02 03:04:05.678 OpenHC 诊断记录：进程 4321 开始记录 =====",
+        )
+        for (line in kept) assertFalse(DiagnosticsReport.writtenDirectly(line), line)
+    }
+
+    @Test
     fun sectionTitlesStandOut() {
         assertEquals("\n===== 运行日志 =====\n", DiagnosticsReport.section("运行日志"))
     }

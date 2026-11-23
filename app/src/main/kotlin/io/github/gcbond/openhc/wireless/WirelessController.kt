@@ -12,8 +12,8 @@ import android.os.Handler
 import android.os.HandlerThread
 import android.os.Looper
 import android.os.SystemClock
-import android.util.Log
 import androidx.core.content.ContextCompat
+import io.github.gcbond.openhc.platform.log.Log
 import io.github.gcbond.openhc.startup.BootStartPolicy
 import io.github.gcbond.openhc.startup.BootStart
 import io.github.gcbond.openhc.OpenHcApp
@@ -470,6 +470,7 @@ class WirelessController(
                 io.github.gcbond.openhc.connection.DisplayArea.screenFor(app, fullScreen),
                 io.github.gcbond.openhc.connection.ResolutionChoice.Auto,
                 settings.fps,
+                settings.uiScalePercent,
             )
         } catch (e: IllegalArgumentException) {
             return blocked(kind, WirelessNotice.StartFailed("屏幕参数不对：${e.message}"), AutoHold.START_FAILED)
@@ -513,7 +514,7 @@ class WirelessController(
             TAG,
             "第 ${current.id} 次无线连接（${when (kind) { Kind.AUTO -> "等已配对的手机回连"; Kind.RECONNECT -> "车机主动回连"; Kind.MANUAL -> "用户开始" }}）：" +
                 "蓝牙地址来源 ${bluetooth.source}，deviceId ${config.deviceId.take(4)}…，" +
-                "画布 ${display.width}x${display.height}@${display.fps} dpi ${display.dpi}，系统 ${Build.VERSION.SDK_INT}，$wifi，" +
+                "画布 ${display.width}x${display.height}@${display.fps} dpi ${display.dpi}（界面大小 ${settings.uiScalePercent}%），系统 ${Build.VERSION.SDK_INT}，$wifi，" +
                 "已配对手机 ${trustStore.peerCount} 台，声音 ${audio ?: "关"}，手机加入的网络 ${if (directGroup) "WiFi 直连组（试验）" else "本地热点"}，" +
                 "广播 ${beacon?.let { "开（重新发布 ${it.republishMillis / 1000} 秒，GATT ${if (it.gatt) "开" else "关"}${if (it.declareRandomAddress) "，声明随机地址" else ""}）" } ?: "不发"}",
         )
