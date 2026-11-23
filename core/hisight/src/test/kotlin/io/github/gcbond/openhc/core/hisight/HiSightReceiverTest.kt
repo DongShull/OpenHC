@@ -271,7 +271,10 @@ class HiSightReceiverTest {
 
         val m4 = s.feed(phone.request("SET_PARAMETER", 10, "his_video_formats: codecs 1;width 640;height 480;fps 30\r\n"))
         assertEquals(listOf("RTSP/1.0 200 OK#10"), phone.read(m4))
-        assertTrue(m4.none { it is HiSightOutput.Note }, "说明只记一次")
+        val m4Notes = m4.filterIsInstance<HiSightOutput.Note>().map { it.text }
+        assertTrue(m4Notes.none { "OPTIONS" in it }, "没发 OPTIONS 的说明只记一次")
+        val selection = m4Notes.single { it.startsWith("手机的能力选择：") }
+        assertTrue("his_video_formats: codecs 1;width 640" in selection && "\\r\\n" in selection, selection)
         assertEquals(listOf("RTSP/1.0 200 OK#11", "SETUP * RTSP/1.0#2"),
             phone.read(s.feed(phone.request("SET_PARAMETER", 11, "his_trigger_method: SETUP\r\n"))))
     }

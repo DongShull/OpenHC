@@ -193,6 +193,16 @@ class CapabilitiesTest {
     }
 
     @Test
+    fun undeclaredMediaCapabilityIsAcceptedWithANote() {
+        val caps = Capabilities(HiSightConfig(640, 480, 640, 480, 30, 160))
+        val notes = caps.select(
+            ParameterText.parameters(ascii("his_media_capability: hdr 1;\r\nhis_video_formats: codecs 1;width 320;height 240;fps 25\r\n")),
+        )
+        assertEquals(320, caps.mediaSetup(1000, -1).selection.width)
+        assertTrue(notes.single().let { "扩展媒体能力" in it && "hdr 1;" in it }, notes.toString())
+    }
+
+    @Test
     fun configRejectsInvalidValues() {
         assertFailsWith<IllegalArgumentException> { HiSightConfig(0, 480, 640, 480, 30, 160) }
         assertFailsWith<IllegalArgumentException> { HiSightConfig(640, 480, 640, 480, 30, 160, gop = 0) }

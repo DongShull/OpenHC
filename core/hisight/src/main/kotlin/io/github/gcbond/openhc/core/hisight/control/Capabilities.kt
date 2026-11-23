@@ -82,8 +82,8 @@ internal class Capabilities(private val config: HiSightConfig) {
      * 校验一次能力选择（不含触发命令）。没有 `his_video_formats` 时只更新输入选择。
      * 返回要写进诊断日志的说明（没有就是空表）。
      *
-     * 音频：车机不声明投屏通道上的音频（声音走 DMSDP），但鸿蒙 4.x 的手机仍会选一种音频（2026-11 用户报告），
-     * 照常接受、把它选的值写进说明，这条连接不从投屏通道收声音。
+     * 音频、扩展媒体能力：车机不声明（声音走 DMSDP），但鸿蒙 3.0 / 4.x 的手机仍会选（2026-11 用户报告和实机），
+     * 照常接受、把选的值写进说明，这条连接不按它处理。
      */
     fun select(fields: Map<String, String>): List<String> {
         val notes = ArrayList<String>(1)
@@ -120,7 +120,11 @@ internal class Capabilities(private val config: HiSightConfig) {
         }
         fields["his_media_capability"]?.let {
             val v = it.lowercase()
-            if (v != "" && v != "none") throw MalformedMessageException("手机选择了未声明的扩展媒体能力")
+            if (v != "" && v != "none") {
+                // 车机不声明扩展媒体能力，鸿蒙 3.0 的手机仍会选（2026-11 实机）：照常继续，选的值写进说明。
+                val shown = it.filter { c -> c in ' '..'~' }.take(AUDIO_NOTE_MAX)
+                notes += "手机选了扩展媒体能力「$shown」（车机没声明），照常继续，不按它处理"
+            }
         }
         if ("his_vtp" in fields) throw MalformedMessageException("没有声明 VTP，手机却选择了它")
         fields["his_feature"]?.let {
