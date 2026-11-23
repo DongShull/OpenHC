@@ -1,6 +1,7 @@
 package io.github.gcbond.openhc.audio
 
 import android.content.Context
+import android.os.SystemClock
 import io.github.gcbond.openhc.core.dmsdp.audio.AudioCodec
 import io.github.gcbond.openhc.core.dmsdp.audio.AudioEndReason
 import io.github.gcbond.openhc.core.dmsdp.audio.AudioEvent
@@ -60,6 +61,9 @@ internal class AudioOutput(
 
     /** 焦点决定的各用途音量（新建的播放器也照这个设）。 */
     private val volumes = EnumMap<AudioUsage, Float>(AudioUsage::class.java)
+
+    /** 最近一次收到控制连接上的声音的时间（elapsedRealtime）；在 [lock] 里读写。 */
+    private var lastControlAudioAt = Long.MIN_VALUE / 2
     private var focus: AudioFocusController? = null
     private var closed = false
     private var muted = 0L
@@ -126,11 +130,12 @@ internal class AudioOutput(
             is AudioEvent.Ended -> {
                 stopSession(event.stream.dataSessionId, "数据会话结束（${event.reason.label}）")
                 // 手机拆掉数据会话就是不放了：焦点一并放掉（通话中的通话焦点除外），它重新出声时会再要；被新的替换时不放。
-                // 例外：声音走控制连接时（老鸿蒙），手机每隔几秒就拆一次没连上的数据会话，声音却一直在放，这时不放焦点，
-                // 焦点跟着控制连接那一路的出声、停声走。
+                // 例外：声音正在走控制连接时（老鸿蒙），手机每隔几秒就拆一次没连上的数据会话，声音却一直在放，这时不放焦点，
+                // 焦点跟着控制连接那一路的出声、停声走。只看最近 [CONTROL_AUDIO_ACTIVE_MS] 内有没有收到：纯血鸿蒙只在数据连接
+                // 连上前从控制连接送一点，之后照常放焦点。
                 if (event.reason == AudioEndReason.PEER_TEARDOWN || event.reason == AudioEndReason.LISTEN_FAILED) {
-                    val controlAudio = synchronized(lock) { streams.keys.any { it.dataSessionId.startsWith(AudioStreamInfo.CONTROL_SESSION_ID) } }
-                    if (!controlAudio) synchronized(lock) { focus }?.dataSessionEnded()
+                    val since = SystemClock.elapsedRealtime() - synchronized(lock) { lastControlAudioAt }
+                    if (since > CONTROL_AUDIO_ACTIVE_MS) synchronized(lock) { focus }?.dataSessionEnded()
                 }
             }
             is AudioEvent.PeerClosed -> stopSession(event.stream.dataSessionId, "数据连接断开")
@@ -161,6 +166,7 @@ internal class AudioOutput(
                 return
             }
             val stream = streamFor(packet, stale) ?: return
+            if (packet.stream.dataSessionId.startsWith(AudioStreamInfo.CONTROL_SESSION_ID)) lastControlAudioAt = SystemClock.elapsedRealtime()
             val target = stream.player
             when (packet.codec) {
                 AudioCodec.PCM -> target.queuePcm(
@@ -333,6 +339,9 @@ internal class AudioOutput(
 
         /** 无线时音乐和导航多攒的毫秒数：车机扫描 WiFi 时投屏信道一次停 0.1～0.3 秒，留点余量。 */
         const val WIRELESS_CUSHION_MILLIS = 300
+
+        /** 控制连接上的声音这么久之内收到过，就算还在放。 */
+        private const val CONTROL_AUDIO_ACTIVE_MS = 1_500L
 
         fun encodingOf(codec: AudioCodec): AudioPlayer.Encoding =
             if (codec == AudioCodec.PCM) AudioPlayer.Encoding.PCM_16 else AudioPlayer.Encoding.AAC
