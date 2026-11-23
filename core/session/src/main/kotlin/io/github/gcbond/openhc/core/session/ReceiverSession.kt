@@ -580,6 +580,12 @@ class ReceiverSession internal constructor(
                 is DmsdpEvent.EncryptionEnabled -> out.add(SessionEvent.DeviceSessionReady(o.keepAliveMode))
                 is DmsdpEvent.KeepAliveTimeout -> finish(EndReason.KeepAliveTimeout(o.mode), out)
                 is DmsdpEvent.DisplayPortAnnounced -> beginHiSight(o.port, out)
+                is DmsdpEvent.ServiceStatusChanged -> {
+                    diag(SessionLayer.DMSDP, o.toString(), out)
+                    if (o.action == SERVICE_ACTION_PAUSE && o.serviceType == SERVICE_TYPE_DISPLAY) {
+                        out.add(SessionEvent.ProjectionPaused)
+                    }
+                }
                 is DmsdpEvent -> diag(SessionLayer.DMSDP, o.toString(), out)
             }
         }
@@ -909,6 +915,11 @@ class ReceiverSession internal constructor(
     override fun toString() = "ReceiverSession(已结束=$ended, 认证=$authSucceeded, 投屏=${hisight != null}, 帧=$framesDelivered)"
 
     private companion object {
+        /** 设备服务状态通知（命令 103）的动作：202 是服务暂停（投屏界面上点「车机」图标时，手机对显示服务发这个）。 */
+        const val SERVICE_ACTION_PAUSE = 202
+
+        /** 设备服务类型：显示（投屏画面）。 */
+        const val SERVICE_TYPE_DISPLAY = 8L
         /** 音频端口从这个范围里挑偶数（本机的选择：RTP 习惯用偶数口，不是协议规定）。 */
         const val AUDIO_PORT_MIN = 20_000
         const val AUDIO_PORT_MAX = 59_998

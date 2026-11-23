@@ -13,14 +13,12 @@ import android.os.HandlerThread
 import android.os.Looper
 import android.os.SystemClock
 import androidx.core.content.ContextCompat
-import io.github.gcbond.openhc.platform.log.Log
-import io.github.gcbond.openhc.startup.BootStartPolicy
-import io.github.gcbond.openhc.startup.BootStart
-import io.github.gcbond.openhc.OpenHcApp
 import io.github.gcbond.openhc.IdentityLoader
+import io.github.gcbond.openhc.OpenHcApp
 import io.github.gcbond.openhc.audio.AudioOutput
 import io.github.gcbond.openhc.connection.BluetoothAddressPolicy
 import io.github.gcbond.openhc.connection.BluetoothSource
+import io.github.gcbond.openhc.connection.CarHome
 import io.github.gcbond.openhc.connection.DeviceInfo
 import io.github.gcbond.openhc.connection.DisplayPlan
 import io.github.gcbond.openhc.connection.VideoClarity
@@ -42,12 +40,13 @@ import io.github.gcbond.openhc.platform.bluetooth.BleBeacon
 import io.github.gcbond.openhc.platform.bluetooth.BluetoothStatus
 import io.github.gcbond.openhc.platform.bluetooth.RfcommClient
 import io.github.gcbond.openhc.platform.bluetooth.RfcommServer
+import io.github.gcbond.openhc.platform.log.Log
 import io.github.gcbond.openhc.platform.media.VideoDecoder
 import io.github.gcbond.openhc.platform.wifi.CarHotspot
 import io.github.gcbond.openhc.platform.wifi.CarHotspotSettings
 import io.github.gcbond.openhc.platform.wifi.LocalHotspotOwner
-import io.github.gcbond.openhc.platform.wifi.WifiDirectGroupOwner
 import io.github.gcbond.openhc.platform.wifi.MacText
+import io.github.gcbond.openhc.platform.wifi.WifiDirectGroupOwner
 import io.github.gcbond.openhc.platform.wifi.WifiStatus
 import io.github.gcbond.openhc.settings.AppSettings
 import io.github.gcbond.openhc.settings.AudioPreferences
@@ -55,17 +54,19 @@ import io.github.gcbond.openhc.settings.ClarityPreferences
 import io.github.gcbond.openhc.settings.MediaKeyPreferences
 import io.github.gcbond.openhc.settings.WirelessNetworkPreferences
 import io.github.gcbond.openhc.settings.WirelessPreferences
+import io.github.gcbond.openhc.startup.BootStart
+import io.github.gcbond.openhc.startup.BootStartPolicy
 import io.github.gcbond.openhc.trust.FileTrustStore
 import io.github.gcbond.openhc.trust.TrustStoreCorruptException
-import kotlinx.coroutines.flow.MutableStateFlow
-import kotlinx.coroutines.flow.StateFlow
-import kotlinx.coroutines.flow.asStateFlow
-import kotlinx.coroutines.flow.update
 import java.io.File
 import java.io.IOException
 import java.security.SecureRandom
 import java.util.concurrent.CopyOnWriteArrayList
 import kotlin.concurrent.thread
+import kotlinx.coroutines.flow.MutableStateFlow
+import kotlinx.coroutines.flow.StateFlow
+import kotlinx.coroutines.flow.asStateFlow
+import kotlinx.coroutines.flow.update
 
 /**
  * 无线投屏（扫码 → 蓝牙 → 车机开热点 → 投屏）的总调度。进程内唯一（应用对象持有），有连接期间由前台服务
@@ -1045,6 +1046,8 @@ class WirelessController(
                 current.inputReady = current.touchNegotiated && !current.tearingDown
                 if (current.keyNegotiated && !current.tearingDown) MediaKeys.ready(app, current.keys)
             }
+            is SessionEvent.DeviceSessionReady -> CarHome.onDeviceSessionReady()
+            SessionEvent.ProjectionPaused -> CarHome.onProjectionPaused("无线 #${current.id}")
             else -> Unit
         }
     }
