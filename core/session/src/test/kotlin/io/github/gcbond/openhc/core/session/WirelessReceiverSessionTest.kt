@@ -80,6 +80,7 @@ class WirelessReceiverSessionTest {
                 is SessionAction.Write -> "write ${names[c.id]} ${c.bytes.text()}"
                 is SessionAction.Close -> "close ${names[c.id] ?: c.id}"
                 is SessionAction.OpenUdp -> "udp ${c.localHost} -> ${c.remoteHost}:${c.remotePort}"
+                is SessionAction.BindUdp -> "bind-udp ${c.channel} ${c.localHost}:${c.localPort}"
                 is SessionAction.SendDatagram -> "datagram ${c.bytes.text()}"
                 is SessionEvent.Diagnostic -> "diag"
                 is SessionEvent -> "event $c"

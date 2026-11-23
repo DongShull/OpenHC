@@ -385,7 +385,7 @@ internal class SpeakerSession(
         val stream = Stream(streamInfo(sessionId, message.header(PARA_AUDIO) ?: "", speaker.transport, codec))
         current = stream
         emit(AudioEvent.Requested(stream.info))
-        out?.add(DmsdpAction.OpenAudioListeners)
+        out?.add(DmsdpAction.OpenAudioListeners(speaker.transport))
     }
 
     private fun onTeardown(message: DmsdpMessage) {

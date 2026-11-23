@@ -276,6 +276,7 @@ class SocketRunner(
                 is SessionAction.Write -> write(output)
                 is SessionAction.Close -> closeResource(output.id)
                 is SessionAction.OpenUdp -> openUdp(output)
+                is SessionAction.BindUdp -> bindUdp(output)
                 is SessionAction.SendDatagram -> sendDatagram(output)
                 is SessionEvent -> deliver(output)
             }
@@ -364,6 +365,26 @@ class SocketRunner(
             return
         }
         thread.start()
+    }
+
+    private fun bindUdp(action: SessionAction.BindUdp) {
+        val socket: DatagramSocket
+        try {
+            socket = DatagramSocket(InetSocketAddress(InetAddress.getByName(action.localHost), action.localPort))
+        } catch (e: IOException) {
+            val message = "绑 UDP（${action.localHost}:${action.localPort}）失败：${describe(e)}"
+            immediate.add { session.onIoError(action.id, message, now()) }
+            return
+        }
+        val udp = UdpResource(action.id, socket, options.buffersPerConnection, options.readBufferBytes)
+        val thread = newThread(action.channel, action.id) { udpLoop(udp) }
+        if (!register(udp, thread)) {
+            closeQuietly(socket)
+            return
+        }
+        thread.start()
+        val port = socket.localPort
+        immediate.add { session.onListening(action.id, port, now()) }
     }
 
     private fun sendDatagram(action: SessionAction.SendDatagram) {
