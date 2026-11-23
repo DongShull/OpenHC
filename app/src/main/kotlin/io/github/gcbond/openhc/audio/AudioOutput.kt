@@ -2,6 +2,7 @@ package io.github.gcbond.openhc.audio
 
 import android.content.Context
 import android.os.SystemClock
+import io.github.gcbond.openhc.core.dmsdp.audio.AudioBus
 import io.github.gcbond.openhc.core.dmsdp.audio.AudioCodec
 import io.github.gcbond.openhc.core.dmsdp.audio.AudioEndReason
 import io.github.gcbond.openhc.core.dmsdp.audio.AudioEvent
@@ -68,7 +69,12 @@ internal class AudioOutput(
     private var closed = false
     private var muted = 0L
 
-    private data class StreamKey(val dataSessionId: String, val ssrc: Long, val route: AudioRoute)
+    /**
+     * 一个播放器对应的一路声音。[lane] 是路号已知时的路号（SSRC 低 16 位），未知时是整个 SSRC：手机往一路声音里混进
+     * 提示音之类时，SSRC 高 16 位的用途会变（例如 1 → 4097、1 → 0），路号不变，要接着用原来的播放器，不然会同时有两个
+     * 播放器交替放空。用途变了要换声道时 [route] 不同，照样分开。
+     */
+    private data class StreamKey(val dataSessionId: String, val lane: Long, val route: AudioRoute)
 
     /** 一路声音。[sounding] 跟着播放器的「开始出声 / 放空」走，焦点按它算这个用途还在不在响。 */
     private inner class Stream(val key: StreamKey, val usage: AudioUsage, val bus: Int) : AudioPlayer.Listener {
@@ -106,7 +112,7 @@ internal class AudioOutput(
             player.close()
         }
 
-        fun label(): String = "${key.route.label}（${if (bus >= 0) "第 $bus 路" else "SSRC ${key.ssrc}"}）"
+        fun label(): String = "${key.route.label}（${if (bus >= 0) "第 $bus 路" else "SSRC ${key.lane}"}）"
     }
 
     override fun onAudioEvent(event: AudioEvent) {
@@ -287,7 +293,7 @@ internal class AudioOutput(
      */
     private fun streamFor(packet: AudioPacket, stale: MutableList<Stream>): Stream? {
         val info = packet.stream
-        val key = StreamKey(info.dataSessionId, packet.ssrc, packet.route)
+        val key = StreamKey(info.dataSessionId, if (packet.bus != AudioBus.UNKNOWN) packet.ssrc and LANE_MASK else packet.ssrc, packet.route)
         streams[key]?.let { existing ->
             if (existing.player.format.encoding == encodingOf(packet.codec)) return existing
             streams.remove(key)
@@ -343,6 +349,9 @@ internal class AudioOutput(
 
         /** 无线时音乐和导航多攒的毫秒数：车机扫描 WiFi 时投屏信道一次停 0.1～0.3 秒，留点余量。 */
         const val WIRELESS_CUSHION_MILLIS = 300
+
+        /** SSRC 里路号所在的低 16 位。 */
+        private const val LANE_MASK = 0xFFFFL
 
         /** 控制连接上的声音这么久之内收到过，就算还在放。 */
         private const val CONTROL_AUDIO_ACTIVE_MS = 1_500L
