@@ -1,5 +1,18 @@
 # 更新记录
 
+## 0.2.4（测试版，2026-11-23）
+
+- 修复：有的手机（鸿蒙 4.2、MagicOS）做完加密选择后不发 OPTIONS、直接要能力，之前被当成协议错误、断开（报「能力请求早于加密与 OPTIONS 协商」）；
+  现在照常应答（[#32](https://github.com/GGBondLab/OpenHC/issues/32)、[#37](https://github.com/GGBondLab/OpenHC/issues/37)）。只能保证过这一步，后面能不能出画面还没验证。
+- 改进：无线连接时音乐和导航多攒 0.3 秒声音。车机扫描 WiFi 时投屏信道会停 0.1～0.3 秒，之前一停就断音，现在不断了（画面还会顿一下）；
+  代价是无线时声音整体晚 0.3 秒。有线和电话不变（[#42](https://github.com/GGBondLab/OpenHC/issues/42)、[#43](https://github.com/GGBondLab/OpenHC/issues/43)）。已在比亚迪车机上验证。
+- 试验：「5 GHz 直连」放开到安卓 6、7，和安卓 8、9 一样由 OpenHC 指定信道（[#31](https://github.com/GGBondLab/OpenHC/issues/31)、[#35](https://github.com/GGBondLab/OpenHC/issues/35)）。还没在安卓 6、7 的车上验证。
+- 试验：安卓 11 起系统不给应用读网卡的真实地址，手机认不出车机的网络、不加入（[#13](https://github.com/GGBondLab/OpenHC/issues/13)、[#38](https://github.com/GGBondLab/OpenHC/issues/38)）；
+  现在读不到时从网卡的 IPv6 地址反推。在比亚迪车机上模拟过（不读真实地址、只用反推的），手机能连上；还没在安卓 11、12 的车上验证。
+- 试验：新增无线方式「车机自带热点」：先在车机设置里打开车机自带的热点（能选 5 GHz 就选 5 GHz），在 设置 → 连接方式 → 无线方式 里选它，
+  填热点名、密码和频段。热点开着时车机系统不扫描 WiFi，投屏最流畅（比亚迪车机上验证过）；热点开着时车机自己连不了别的 WiFi，
+  有的车机没人连时会自动关热点。
+
 ## 0.2.3（测试版，2026-11-23）
 
 - 修复：有的手机发来的 AAC 声音，每一包前面多 12 字节，之前认不出、一直没声音；现在去掉这 12 字节再解码（[#21](https://github.com/GGBondLab/OpenHC/issues/21)）。还没在出问题的手机上验证。
