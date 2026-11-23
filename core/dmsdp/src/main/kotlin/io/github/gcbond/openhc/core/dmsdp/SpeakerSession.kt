@@ -1,6 +1,7 @@
 package io.github.gcbond.openhc.core.dmsdp
 
 import io.github.gcbond.openhc.core.common.toHex
+import io.github.gcbond.openhc.core.dmsdp.audio.AudioBus
 import io.github.gcbond.openhc.core.dmsdp.audio.AudioCodec
 import io.github.gcbond.openhc.core.dmsdp.audio.AudioDepacketizer
 import io.github.gcbond.openhc.core.dmsdp.audio.AudioEndReason
@@ -75,7 +76,12 @@ internal class SpeakerSession(
     private class ControlStream(val info: AudioStreamInfo, val packet: AudioPacket) {
         var groups = 0L
         var lastMillis = 0L
+        var lastRoute: AudioRoute? = null
+        var lastSsrc = -1L
     }
+
+    /** 已经写过说明的「认得出、但含义不确定」的服务类型。 */
+    private val controlServicesNoted = HashSet<Int>(2)
 
     /** 控制连接上的各路声音，键是片头里的流号。 */
     private val controlStreams = LinkedHashMap<Long, ControlStream>()
@@ -255,7 +261,7 @@ internal class SpeakerSession(
     fun onControlAudio(payload: ByteArray, nowMillis: Long, out: DmsdpSession.Outputs): Boolean {
         var recognized = false
         using(out) {
-            recognized = controlAudio.feed(payload) { stream, data, offset, length -> emitControlPcm(stream, data, offset, length, nowMillis) }
+            recognized = controlAudio.feed(payload) { group -> emitControlPcm(group, nowMillis) }
         }
         return recognized
     }
@@ -289,12 +295,32 @@ internal class SpeakerSession(
         return ControlStream(info, AudioPacket(info)).also { controlStreams[stream] = it }
     }
 
-    private fun emitControlPcm(stream: Long, data: ByteArray, offset: Int, length: Int, nowMillis: Long) {
-        val control = controlStreamFor(stream, nowMillis)
+    /**
+     * 拼好的一组交给播放端。分路和音频数据连接同一套规则（[AudioRouter]）：组头带了路号和用途时拼成同样的 SSRC
+     * （高 16 位用途、低 16 位 1000 + 路号），导航、音乐等各走各的通道；没带时当媒体。通话扬声器的声音一律放通话通道。
+     */
+    private fun emitControlPcm(group: ControlChannelAudio.Group, nowMillis: Long) {
+        val control = controlStreamFor(group.stream, nowMillis)
         control.groups++
         control.lastMillis = nowMillis
         val info = control.info
         val packet = control.packet
+        val data = group.data
+        val offset = group.offset
+        val length = group.length
+        if (group.service !in KNOWN_CONTROL_SERVICES && controlServicesNoted.add(group.service)) {
+            note(info, "控制连接上来了服务类型 ${group.service} 的声音（含义未确定），按组头里的用途分路")
+        }
+        packet.bus = group.bus
+        packet.usage = group.usage
+        packet.ssrc = if (group.bus == AudioBus.UNKNOWN) 0L else (group.usage.toLong() shl 16) or (CONTROL_SSRC_BASE + group.bus)
+        router.onBus(packet.bus)?.let { note(info, it) }
+        val route = if (group.service == ControlChannelAudio.SERVICE_CALL_SPEAKER) AudioRoute.CALL else router.route(packet.bus, packet.usage)
+        if (control.lastRoute != route || control.lastSsrc != packet.ssrc) {
+            control.lastRoute = route
+            control.lastSsrc = packet.ssrc
+            emit(AudioEvent.StreamRouted(info, packet.ssrc, packet.bus, packet.usage, route))
+        }
         packet.sequence = control.groups.toInt()
         packet.codec = AudioCodec.PCM
         packet.playable = true
@@ -302,7 +328,7 @@ internal class SpeakerSession(
         packet.data = data
         packet.offset = offset
         packet.length = length
-        packet.route = router.route(packet.bus, packet.usage)
+        packet.route = route
         if (control.groups == 1L) emit(AudioEvent.FirstPacket(info, packet.payloadType, length))
         if (control.groups <= CONTROL_GROUPS_NOTED) {
             // 组头长度各版本不同：前几组记下用了多长的组头和组开头的字节，出问题时对照（只有长度、时间戳和 PCM，没有标识）。
@@ -530,6 +556,12 @@ internal class SpeakerSession(
 
         /** 控制连接声音前几组写说明、每组写开头多少字节。 */
         private const val CONTROL_GROUPS_NOTED = 3L
+
+        /** 控制连接声音里含义确定的服务类型（扬声器、通话扬声器）。 */
+        private val KNOWN_CONTROL_SERVICES = setOf(ControlChannelAudio.SERVICE_SPEAKER, ControlChannelAudio.SERVICE_CALL_SPEAKER)
+
+        /** SSRC 低 16 位 = 这个数 + 路号（和音频数据连接相同）。 */
+        private const val CONTROL_SSRC_BASE = 1000L
 
         /** 新流号出现时，停了这么久的那一路当成换了号，接着用它的播放器。 */
         private const val CONTROL_IDLE_REUSE_MS = 1_000L

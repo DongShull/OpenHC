@@ -1,5 +1,6 @@
 package io.github.gcbond.openhc.core.dmsdp
 
+import io.github.gcbond.openhc.core.dmsdp.audio.AudioBus
 import io.github.gcbond.openhc.core.common.toHex
 import io.github.gcbond.openhc.core.dmsdp.audio.AudioCodec
 import io.github.gcbond.openhc.core.dmsdp.audio.AudioEndReason
@@ -281,6 +282,28 @@ class SpeakerSessionTest {
         assertTrue(answer.isEmpty())
         assertEquals(406, audio.only<AudioEvent.SetupAnswered>().statusCode)
         assertTrue(audio.events.any { it is AudioEvent.Note && "没有接受" in it.message })
+    }
+
+    /**
+     * 控制连接上的声音按组头里的用途、路号分路（和音频数据连接同一套规则）：第 8 路音乐放媒体，第 0 路导航放导航；
+     * 通话扬声器的声音放通话。三路流号不同，各拼各的。
+     */
+    @Test
+    fun controlChannelAudioIsRoutedByUsageAndBus() {
+        val audio = AudioRecorder()
+        val session = speakerSession(audio = audio)
+        fun send(frames: List<ByteArray>) {
+            for (f in frames) session.feed(DmsdpChannel.CONTROL, phone.encryptedFrame(f), 2_000)
+        }
+        val f = ControlAudioFrames
+        send(f.fragments(1, f.group(f.pcm(2048, 1), header = 18, usage = 1, bus = 8), 6))
+        send(f.fragments(2, f.group(f.pcm(2048, 2), header = 18, usage = 12, bus = 0), 6, stream = 0x0A0B0C0D))
+        send(f.fragments(3, f.group(f.pcm(256, 3), service = 10), 2, stream = 0x01020304, service = 10))
+        assertEquals(
+            listOf(8 to AudioRoute.MEDIA, 0 to AudioRoute.NAVIGATION, AudioBus.UNKNOWN to AudioRoute.CALL),
+            audio.routes,
+        )
+        assertContentEquals(f.pcm(2048, 2), audio.packets[1])
     }
 
     /** CLOSE 和 TEARDOWN 一样：回 200、关掉对得上的会话；已经拆过的只回 200。 */
