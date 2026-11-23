@@ -71,11 +71,10 @@ class CapabilitiesTest {
                     assertEquals("rejected", (expected as? JsonPrimitive)?.content, label)
                     continue
                 }
-                val audio = fields["his_audio_codecs"]?.lowercase()
-                if (expected is JsonPrimitive && expected.content == "rejected" && audio != null && audio != "none") {
-                    // 有意的差异：参考实现拒绝手机选的音频，本实现照常接受并写说明（鸿蒙 4.x 的手机会选）。
-                    // 走到这里说明其他字段都通过了，被拒只因为音频。
-                    assertTrue(notes.any { "没声明" in it }, label)
+                if (expected is JsonPrimitive && expected.content == "rejected") {
+                    // 有意的差异：参考实现拒绝手机选的音频、没声明的输入事件和重复项，本实现照常接受并写说明
+                    // （鸿蒙 3.0 / 4.x 的手机会这样选）。走到这里说明其他字段都通过了，被拒只因为这几样。
+                    assertTrue(notes.any { "没声明" in it || "重复项" in it }, label)
                     continue
                 }
                 val result = expected as? JsonObject ?: throw AssertionError("$label：参考实现拒绝，本实现却接受了")

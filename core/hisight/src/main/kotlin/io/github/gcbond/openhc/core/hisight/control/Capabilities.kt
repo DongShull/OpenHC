@@ -111,7 +111,7 @@ internal class Capabilities(private val config: HiSightConfig) {
                 events = emptyList()
                 vendors = emptyList()
             } else {
-                val chosen = inputSelection(uibc)
+                val chosen = inputSelection(uibc, notes)
                 events = chosen.first
                 vendors = chosen.second
             }
@@ -193,7 +193,11 @@ internal class Capabilities(private val config: HiSightConfig) {
      * 解析手机的输入选择，必须与声明完全一致（顺序可以不同），返回手机给出的顺序。
      * 可选的按键事件（媒体键）例外：可以不选；只选了其中一个时当作都没选。
      */
-    private fun inputSelection(value: String): Pair<List<String>, List<String>> {
+    /**
+     * 解析手机的输入选择。鸿蒙 3.0 的手机会把自己支持的事件全列上（含车机没声明的鼠标事件，触摸、按键各列两遍，
+     * 2026-11 实机），所以没声明的事件和重复项丢掉、只用声明过的，并写一条说明；必须的事件仍要选上。
+     */
+    private fun inputSelection(value: String, notes: MutableList<String>): Pair<List<String>, List<String>> {
         val parts = value.split(";").toMutableList()
         if (parts.last().isEmpty()) parts.removeAt(parts.size - 1)
         val fields = HashMap<String, String>()
@@ -209,9 +213,14 @@ internal class Capabilities(private val config: HiSightConfig) {
         if (fields["input_category_list"] != "GENERIC" || generic == null) {
             throw MalformedMessageException("输入选择必须是已声明的 GENERIC 类别")
         }
-        var events = if (generic.isEmpty()) emptyList() else generic.split(", ")
-        if (events.toSet().size != events.size || events.any { it !in advertisedEvents }) {
-            throw MalformedMessageException("输入选择含重复或未声明的事件")
+        val listed = if (generic.isEmpty()) emptyList() else generic.split(", ")
+        val declared = listed.filter { it in advertisedEvents }
+        var events = declared.distinct()
+        val extra = listed.filter { it !in advertisedEvents }.distinct()
+        if (extra.isNotEmpty() || events.size != declared.size) {
+            val shown = extra.take(EXTRA_EVENTS_SHOWN).joinToString("、") { it.filter { c -> c in ' '..'~' }.take(EVENT_NAME_MAX) }
+            notes += "手机的输入选择里有车机没声明的事件（${if (extra.isEmpty()) "无" else shown}）或重复项，只用声明过的：" +
+                events.joinToString("、")
         }
         if (!events.containsAll(requiredEvents)) throw MalformedMessageException("输入选择缺少已声明的事件")
         // 可选的按键事件只选了一半：当作没选，免得按下发得出去、抬起发不出去。
@@ -238,6 +247,10 @@ internal class Capabilities(private val config: HiSightConfig) {
     }
 
     companion object {
+        /** 说明里最多列这么多个没声明的事件、每个最多这么多字符。 */
+        private const val EXTRA_EVENTS_SHOWN = 8
+        private const val EVENT_NAME_MAX = 40
+
         /** 说明里最多写手机选的音频值的这么多字符。 */
         private const val AUDIO_NOTE_MAX = 120
 
