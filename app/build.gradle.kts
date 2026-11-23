@@ -45,8 +45,8 @@ android {
         minSdk = libs.versions.minSdk.get().toInt()
         targetSdk = libs.versions.targetSdk.get().toInt()
         // versionCode = 主版本 × 10000 + 次版本 × 100 + 补丁号。
-        versionCode = 204
-        versionName = "0.2.4"
+        versionCode = 205
+        versionName = "0.2.5"
     }
 
     sourceSets {

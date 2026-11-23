@@ -1,5 +1,18 @@
 # 更新记录
 
+## 0.2.5（测试版，2026-11-23）
+
+- 新增：鸿蒙 3.0 / 4.x（非纯血鸿蒙）的手机能无线投屏了：画面、触摸、声音都正常（鸿蒙 3.0 手机实测）。
+  这些手机在投屏协商里的选法和纯血鸿蒙不一样（多选了没声明的音频、鼠标事件、扩展媒体能力、输入功能，保活消息格式也不同），
+  之前每一步都被当成协议错误断开；现在照常接受，并把手机的选择写进诊断日志（[#10](https://github.com/GGBondLab/OpenHC/issues/10)、[#11](https://github.com/GGBondLab/OpenHC/issues/11)、[#32](https://github.com/GGBondLab/OpenHC/issues/32)、[#37](https://github.com/GGBondLab/OpenHC/issues/37)）。
+  这些手机的声音不走音频数据连接，而是经设备会话的控制连接送来，现在能拼起来播放。手机还会每隔几秒重试建音频数据连接，偶尔会让声音停零点几秒到两秒。
+- 新增：投屏界面上点「车机」图标，回到车机桌面；连接、声音、方向盘按键照常，从桌面点 OpenHC 回到投屏。
+- 修复：手机重新配对时把设备握手连发两遍，之前被当成协议错误断开，表现为「第二次连不上、扫码输码也失败」（[#9](https://github.com/GGBondLab/OpenHC/issues/9)、[#21](https://github.com/GGBondLab/OpenHC/issues/21)、[#36](https://github.com/GGBondLab/OpenHC/issues/36)）。
+  只在单元测试里验证过，车上没复现出这种情况。
+- 验证：安卓 12 的设备当车机，「5 GHz 直连」用 IPv6 地址反推网卡地址，手机能连上（[#13](https://github.com/GGBondLab/OpenHC/issues/13)、[#38](https://github.com/GGBondLab/OpenHC/issues/38)；平板实测，还没在安卓 12 的车机上试）。
+- 改进：诊断日志多记几样，方便对症：手机在投屏协商里的选择全文、格式不对的控制消息开头、没处理的设备消息内容（长串照样隐去）。
+- 文档：README 提醒先给权限，有的车机自带的权限管家会悄悄拦下申请（[#31](https://github.com/GGBondLab/OpenHC/issues/31)）。
+
 ## 0.2.4（测试版，2026-11-23）
 
 - 修复：有的手机（鸿蒙 4.2、MagicOS）做完加密选择后不发 OPTIONS、直接要能力，之前被当成协议错误、断开（报「能力请求早于加密与 OPTIONS 协商」）；
