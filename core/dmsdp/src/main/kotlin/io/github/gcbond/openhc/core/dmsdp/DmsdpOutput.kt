@@ -214,7 +214,23 @@ sealed class DmsdpEvent : DmsdpOutput {
      * 以及没开文件分享时的 module 1 / type 17。要回复时用 [DmsdpSession.sendDeviceData]。
      */
     class UnhandledDeviceData(val module: Long, val type: Int, val data: ByteArray) : DmsdpEvent() {
-        override fun toString() = "UnhandledDeviceData(module=$module, type=$type, ${data.size} 字节)"
+        override fun toString() = "UnhandledDeviceData(module=$module, type=$type, ${data.size} 字节：${preview(data)})"
+
+        private companion object {
+            const val PREVIEW_BYTES = 160
+            val LONG_TOKEN = Regex("[0-9A-Za-z+/=_-]{24,}")
+
+            /** 内容开头（多半是 JSON 文本）：不可打印字节换成点，长串隐去，免得把标识写进日志。 */
+            fun preview(data: ByteArray): String {
+                val text = buildString {
+                    for (i in 0 until minOf(data.size, PREVIEW_BYTES)) {
+                        val c = data[i].toInt() and 0xFF
+                        append(if (c in 0x20..0x7E) c.toChar() else '.')
+                    }
+                }.replace(LONG_TOKEN) { "<隐去 ${it.value.length} 字符>" }
+                return if (data.size > PREVIEW_BYTES) "$text…" else text
+            }
+        }
     }
 
     // ---------- 音频数据会话（详情经 [io.github.gcbond.openhc.core.dmsdp.audio.AudioStreamListener] 交出）----------
