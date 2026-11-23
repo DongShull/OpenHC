@@ -68,9 +68,26 @@ class DmsdpMessage(
             return DmsdpMessage(lines[0], headers, payload.copyOfRange(headerEnd + 4, payload.size))
         }
 
-        /** 看起来是文字消息：以大写字母开头（方法名或 `DMSDP/1.0`），并且有头部结束的空行。 */
-        fun looksLikeText(payload: ByteArray): Boolean =
-            payload.isNotEmpty() && payload[0] in 'A'.code.toByte()..'Z'.code.toByte() && indexOfBlankLine(payload) >= 0
+        /**
+         * 看起来是文字消息：首行全是可打印 ASCII、以 CRLF 结束，是「方法名 空格 …」（方法名只有大写字母和下划线）
+         * 或以 `DMSDP/1.0 ` 开头，并且有头部结束的空行。控制连接上的二进制块也可能碰巧以大写字母开头、中间含空行，
+         * 只看首字节会被当成文字去解析、解析失败断开连接。
+         */
+        fun looksLikeText(payload: ByteArray): Boolean {
+            var end = 0
+            while (end < payload.size && payload[end] != CR) {
+                if (payload[end] !in PRINTABLE) return false
+                end++
+            }
+            if (end == 0 || end + 1 >= payload.size || payload[end + 1] != LF) return false
+            val first = String(payload, 0, end, Charsets.US_ASCII)
+            val space = first.indexOf(' ')
+            val shaped = first.startsWith("$VERSION ") ||
+                (space > 0 && space < first.length - 1 && first.substring(0, space).all { it in 'A'..'Z' || it == '_' })
+            return shaped && indexOfBlankLine(payload) >= 0
+        }
+
+        private val PRINTABLE = 0x20.toByte()..0x7E.toByte()
 
         /** 编码一条消息：首行、头部各占一行（CRLF），再一个空行，再正文。 */
         fun encode(startLine: String, headers: List<Pair<String, String>>, body: ByteArray = ByteArray(0)): ByteArray {

@@ -9,26 +9,30 @@ import kotlin.test.assertTrue
 /** 控制连接上的声音：分片的识别、按组拼接、组头校验。数据都是合成的。 */
 class ControlChannelAudioTest {
 
-    /** 一组：14 字节组头（最后两字节是整组长度）+ [pcm]。 */
-    private fun group(pcm: ByteArray): ByteArray {
-        val total = ControlChannelAudio.GROUP_HEADER + pcm.size
-        val head = ByteArray(ControlChannelAudio.GROUP_HEADER) { (it + 1).toByte() }
-        head[12] = (total shr 8).toByte()
-        head[13] = total.toByte()
+    /** 一组：[headerSize] 字节组头（最后 4 字节是整组长度，其余是合成值）+ [pcm]。 */
+    private fun group(pcm: ByteArray, headerSize: Int = 14): ByteArray {
+        val total = headerSize + pcm.size
+        val head = ByteArray(headerSize) { (it + 1).toByte() }
+        for (k in 0 until 4) head[headerSize - 4 + k] = (total shr (24 - 8 * k)).toByte()
         return head + pcm
     }
 
-    /** 把一组切成 [parts] 片，每片带 18 字节片头。前缀用合成值。 */
+    /** 把一组切成 [parts] 片，每片带 18 字节片头；位置标记首片 1、末片 3、其余 2。会话号用合成值。 */
     private fun fragments(seq: Long, whole: ByteArray, parts: Int): List<ByteArray> {
         val size = (whole.size + parts - 1) / parts
         return (0 until parts).map { i ->
             val data = whole.copyOfRange(i * size, minOf(whole.size, (i + 1) * size))
             val h = ByteArray(ControlChannelAudio.HEADER)
-            for (k in 0 until 8) h[k] = (0x40 + k).toByte()
-            h[8] = parts.toByte()
-            h[9] = (i + 1).toByte()
+            h[0] = '#'.code.toByte()
+            for (k in 1..4) h[k] = (0x50 + k).toByte()
+            for (k in 0 until 4) h[5 + k] = (ControlChannelAudio.MAGIC shr (24 - 8 * k)).toByte()
+            h[9] = when (i) {
+                parts - 1 -> 3
+                0 -> 1
+                else -> 2
+            }
             for (k in 0 until 4) h[10 + k] = (seq shr (24 - 8 * k)).toByte()
-            h[14] = 0
+            h[14] = (i shr 8).toByte()
             h[15] = i.toByte()
             h[16] = (data.size shr 8).toByte()
             h[17] = data.size.toByte()
@@ -38,20 +42,33 @@ class ControlChannelAudioTest {
 
     private fun pcm(frames: Int, seed: Int) = ByteArray(frames * 4) { ((it * 7 + seed) and 0xFF).toByte() }
 
-    @Test
-    fun threeFragmentsMakeOneGroupOfPcm() {
-        val audio = ControlChannelAudio()
+    private fun collect(audio: ControlChannelAudio, input: List<ByteArray>): List<ByteArray> {
         val out = ArrayList<ByteArray>()
+        for (f in input) assertTrue(audio.feed(f) { d, o, l -> out += d.copyOfRange(o, o + l) })
+        return out
+    }
+
+    @Test
+    fun threeFragmentsWithShortGroupHeaderMakeOneGroupOfPcm() {
+        val audio = ControlChannelAudio()
         val expected = listOf(pcm(1024, 1), pcm(1024, 2))
-        for ((seq, samples) in expected.withIndex()) {
-            for (f in fragments(seq.toLong(), group(samples), 3)) {
-                assertTrue(audio.feed(f) { d, o, l -> out += d.copyOfRange(o, o + l) })
-            }
-        }
+        val out = collect(audio, expected.withIndex().flatMap { (seq, samples) -> fragments(seq.toLong(), group(samples), 3) })
         assertEquals(2, out.size)
         assertContentEquals(expected[0], out[0])
         assertContentEquals(expected[1], out[1])
         assertEquals(2, audio.groups)
+        assertEquals(0, audio.dropped)
+    }
+
+    /** 一组 6 片（中间 4 片的位置标记都是 2），组头 18 字节。 */
+    @Test
+    fun sixFragmentsWithLongGroupHeaderMakeOneGroupOfPcm() {
+        val audio = ControlChannelAudio()
+        val samples = pcm(2048, 3)
+        val out = collect(audio, fragments(40, group(samples, headerSize = 18), 6) + fragments(41, group(pcm(2048, 4), 18), 6))
+        assertEquals(2, out.size)
+        assertContentEquals(samples, out[0])
+        assertContentEquals(pcm(2048, 4), out[1])
         assertEquals(0, audio.dropped)
     }
 
@@ -75,6 +92,12 @@ class ControlChannelAudioTest {
         for (f in fragments(9, bad, 2)) assertTrue(audio.feed(f, sink))
         assertEquals(1, out.size)
         assertEquals(2, audio.dropped)
+        // 末片的组号和前面不一样：丢掉。
+        val mixed = fragments(10, group(pcm(64, 6)), 2).toMutableList()
+        mixed[1] = fragments(11, group(pcm(64, 6)), 2)[1]
+        for (f in mixed) assertTrue(audio.feed(f, sink))
+        assertEquals(1, out.size)
+        assertEquals(3, audio.dropped)
     }
 
     @Test
@@ -84,9 +107,9 @@ class ControlChannelAudioTest {
         val ok = fragments(1, group(pcm(16, 6)), 1).single()
         assertFalse(audio.feed(ok.copyOf(ControlChannelAudio.HEADER - 1), sink), "太短")
         assertFalse(audio.feed(ok.copyOf().also { it[17] = (it[17] + 1).toByte() }, sink), "长度字段对不上")
-        assertFalse(audio.feed(ok.copyOf().also { it[9] = 2 }, sink), "第几片超出片数")
-        assertFalse(audio.feed(ok.copyOf().also { it[8] = 0 }, sink), "片数为 0")
-        assertFalse(audio.feed(ok.copyOf().also { it[15] = 1 }, sink), "片序号和第几片不一致")
+        assertFalse(audio.feed(ok.copyOf().also { it[6] = 0 }, sink), "固定值不对")
+        assertFalse(audio.feed(ok.copyOf().also { it[9] = 0 }, sink), "位置标记为 0")
+        assertFalse(audio.feed(ok.copyOf().also { it[9] = 4 }, sink), "位置标记超出")
         assertFalse(audio.feed("{\"a\":1}".toByteArray(), sink))
         assertEquals(0, audio.fragments)
     }
