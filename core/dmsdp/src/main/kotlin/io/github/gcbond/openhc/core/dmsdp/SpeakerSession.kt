@@ -72,8 +72,11 @@ internal class SpeakerSession(
     /** 控制连接上送来的声音（见 [ControlChannelAudio]）：拼组、按一路声音交出；参数在第一组时定下。 */
     private val controlAudio = ControlChannelAudio()
 
-    /** 这次连接里手机不应答 TCP 的 SETUP（或记着要用 UDP），之后的数据会话都用 UDP。 */
+    /** 这次连接里手机不认 TCP（或记着要用 UDP），之后的数据会话都用 UDP。 */
     private var udpFallback = false
+
+    /** 这次连接里「应答了 TCP 的 SETUP、却一直不连数据端口」的数据会话数（见 [end]）。 */
+    private var answeredNoConnect = 0
 
     /** 控制连接上的一路声音：各用各的播放端会话号和包。 */
     private class ControlStream(val info: AudioStreamInfo, val packet: AudioPacket) {
@@ -96,6 +99,9 @@ internal class SpeakerSession(
         var port = 0
         var setupAtMillis = -1L
         var answer: String? = null
+
+        /** 手机用 200 应答 SETUP 的时刻；没有应答或没接受时为 -1。 */
+        var acceptedAtMillis = -1L
         var data: Link? = null
     }
 
@@ -226,7 +232,7 @@ internal class SpeakerSession(
     fun listenersFailed(reason: String, out: DmsdpSession.Outputs) = using(out) {
         val stream = current ?: return@using
         emit(AudioEvent.ListenFailed(stream.info, reason))
-        end(stream, AudioEndReason.LISTEN_FAILED)
+        end(stream, AudioEndReason.LISTEN_FAILED, nowMillis = null)
     }
 
     fun onConnected(nowMillis: Long, out: DmsdpSession.Outputs) = using(out) {
@@ -337,7 +343,7 @@ internal class SpeakerSession(
 
     /** 整个设备会话结束：当前的数据会话随之结束（资源由调用方统一关闭），PCM 有没有出声在这时下最后的结论。 */
     fun close(nowMillis: Long, out: DmsdpSession.Outputs) = using(out) {
-        current?.let { end(it, AudioEndReason.SESSION_CLOSED) }
+        current?.let { end(it, AudioEndReason.SESSION_CLOSED, nowMillis) }
         setups.clear()
         check?.onClose(nowMillis)?.let { verdict(it) }
     }
@@ -353,7 +359,7 @@ internal class SpeakerSession(
         when {
             trigger.equals(TRIGGER_OPTIONS, ignoreCase = true) -> onOptions(message, nowMillis)
             // CLOSE：老鸿蒙拆掉数据会话之后紧跟着发（2026-11 实机每 3 秒一轮），和 TEARDOWN 一样回 200、关掉对得上的会话。
-            trigger.equals(TRIGGER_TEARDOWN, ignoreCase = true) || trigger.equals(TRIGGER_CLOSE, ignoreCase = true) -> onTeardown(message)
+            trigger.equals(TRIGGER_TEARDOWN, ignoreCase = true) || trigger.equals(TRIGGER_CLOSE, ignoreCase = true) -> onTeardown(message, nowMillis)
             trigger != null -> unhandled(message, "手机触发了没实现的数据会话操作「${trigger.take(32)}」，没有应答")
             message.header(AUDIO_PARAMETER) != null -> onAudioParameter(message)
             else -> unhandled(message, "扬声器服务的 SET_PARAMETER 没有触发字段，没有应答")
@@ -377,20 +383,20 @@ internal class SpeakerSession(
             if (active.port != 0) sendSetup(active, nowMillis)
             return
         }
-        if (active != null) end(active, AudioEndReason.REPLACED)
+        if (active != null) end(active, AudioEndReason.REPLACED, nowMillis)
         val stream = Stream(streamInfo(sessionId, message.header(PARA_AUDIO) ?: "", transport(), codec))
         current = stream
         emit(AudioEvent.Requested(stream.info))
         out?.add(DmsdpAction.OpenAudioListeners(stream.info.transport))
     }
 
-    private fun onTeardown(message: DmsdpMessage) {
+    private fun onTeardown(message: DmsdpMessage, nowMillis: Long) {
         val cseq = validCSeq(message) ?: return
         val sessionId = validSessionId(message) ?: return
         reply(sessionId, cseq)
         val active = current
         if (active != null && active.info.dataSessionId == sessionId) {
-            end(active, AudioEndReason.PEER_TEARDOWN)
+            end(active, AudioEndReason.PEER_TEARDOWN, nowMillis)
         } else {
             note(null, "手机拆除的数据会话 $sessionId 不是当前的，已回 200")
         }
@@ -410,6 +416,7 @@ internal class SpeakerSession(
         val stream = setups.remove(cseq) ?: return
         val after = if (stream.setupAtMillis >= 0) nowMillis - stream.setupAtMillis else -1
         stream.answer = message.startLine
+        if (message.statusCode == STATUS_CODE_OK) stream.acceptedAtMillis = nowMillis
         emit(AudioEvent.SetupAnswered(stream.info, message.startLine, message.statusCode, message.headers, after))
         when {
             stream !== current -> note(stream.info, "这个应答属于已经结束的数据会话，忽略")
@@ -450,7 +457,7 @@ internal class SpeakerSession(
     }
 
     /**
-     * 这次数据会话用的传输方式：调试强制 UDP 时一律 UDP；否则手机在 UDP 名单里、或这次连接里已经因为它不应答 TCP 改过，
+     * 这次数据会话用的传输方式：调试强制 UDP 时一律 UDP；否则手机在 UDP 名单里、或这次连接里已经因为它不认 TCP 改过，
      * 用 UDP；其余用 TCP。
      */
     private fun transport(): AudioTransport {
@@ -465,13 +472,29 @@ internal class SpeakerSession(
         return AudioTransport.TCP
     }
 
-    private fun end(stream: Stream, reason: AudioEndReason) {
+    /** [nowMillis] 为 null 时不判断「应答了却不连」（例如车机自己开不了端口）。 */
+    private fun end(stream: Stream, reason: AudioEndReason, nowMillis: Long?) {
+        val tcpAsked = stream.info.transport == AudioTransport.TCP && !udpFallback &&
+            speaker.transport == AudioTransport.TCP && stream.port != 0 && stream.data == null
         // 手机对 TCP 方式的 SETUP 一直没有应答、也没连数据端口就拆掉了：它不认 TCP（老鸿蒙），之后改用 UDP。
-        if (reason == AudioEndReason.PEER_TEARDOWN && stream.info.transport == AudioTransport.TCP && !udpFallback &&
-            speaker.transport == AudioTransport.TCP && stream.port != 0 && stream.answer == null && stream.data == null
-        ) {
+        if (tcpAsked && reason == AudioEndReason.PEER_TEARDOWN && stream.answer == null) {
             udpFallback = true
-            emit(AudioEvent.TransportFallback(peer))
+            emit(AudioEvent.TransportFallback(peer, AudioEvent.TransportFallback.NO_ANSWER))
+        } else if (tcpAsked && nowMillis != null && stream.acceptedAtMillis >= 0 &&
+            nowMillis - stream.acceptedAtMillis >= ACCEPTED_NO_CONNECT_MILLIS
+        ) {
+            // 用 200 应答了，却过了好几秒都不连数据端口（声音改走控制连接）：有的手机这样表示不认 TCP。
+            // 纯血鸿蒙应答后几十毫秒内就连上；为免偶尔一次没连上就把这台手机永久记成 UDP，同一次连接里出现两次才改。
+            answeredNoConnect++
+            note(
+                stream.info,
+                "手机应答了 SETUP，但 ${(nowMillis - stream.acceptedAtMillis) / 1000} 秒都没连数据端口" +
+                    "（这次连接第 $answeredNoConnect 次）",
+            )
+            if (answeredNoConnect >= ACCEPTED_NO_CONNECT_SESSIONS) {
+                udpFallback = true
+                emit(AudioEvent.TransportFallback(peer, AudioEvent.TransportFallback.ACCEPTED_NO_CONNECT))
+            }
         }
         stream.data?.finish()
         if (current === stream) current = null
@@ -579,8 +602,14 @@ internal class SpeakerSession(
         /** 控制连接声音里含义确定的服务类型（扬声器、通话扬声器）。 */
         private val KNOWN_CONTROL_SERVICES = setOf(ControlChannelAudio.SERVICE_SPEAKER, ControlChannelAudio.SERVICE_CALL_SPEAKER)
 
-        /** SSRC 低 16 位 = 这个数 + 路号（和音频数据连接相同）。 */
+        /** SSRC 低 12 位 = 这个数 + 路号（和音频数据连接相同）。 */
         private const val CONTROL_SSRC_BASE = 1000L
+
+        /** 用 200 应答 SETUP 之后，过了这么久还没连数据端口，算一次「应答了却不连」。 */
+        const val ACCEPTED_NO_CONNECT_MILLIS = 5_000L
+
+        /** 同一次连接里「应答了却不连」出现这么多次，就改用 UDP。 */
+        const val ACCEPTED_NO_CONNECT_SESSIONS = 2
 
         private const val CONTROL_GROUP_HEAD_SHOWN = 32
 

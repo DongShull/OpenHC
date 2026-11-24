@@ -234,11 +234,16 @@ sealed class AudioEvent {
      * [phone] 为 null 表示没收到手机的设备信息、认不出是哪台。
      */
     /**
-     * 手机不应答 TCP 方式的 SETUP、直接拆掉了数据会话：这次连接之后的数据会话改用 UDP，应用应记下这台手机
-     * （下次连接直接用 UDP）。[phone] 认不出时为 null。
+     * 手机不认 TCP 方式的数据会话：这次连接之后的数据会话改用 UDP，应用应记下这台手机（下次连接直接用 UDP）。
+     * [phone] 认不出时为 null；[reason] 是看出来的依据（[NO_ANSWER] 或 [ACCEPTED_NO_CONNECT]）。
      */
-    class TransportFallback(val phone: PhoneRef?) : AudioEvent() {
-        override fun toString() = "手机（${phone ?: "认不出是哪台手机"}）不应答 TCP 方式的 SETUP，之后的数据会话改用 UDP"
+    class TransportFallback(val phone: PhoneRef?, val reason: String = NO_ANSWER) : AudioEvent() {
+        override fun toString() = "手机（${phone ?: "认不出是哪台手机"}）$reason，之后的数据会话改用 UDP"
+
+        companion object {
+            const val NO_ANSWER = "不应答 TCP 方式的 SETUP"
+            const val ACCEPTED_NO_CONNECT = "应答了 TCP 方式的 SETUP、却好几次都不连数据端口"
+        }
     }
 
     class CodecVerdict(val phone: PhoneRef?, val verdict: PcmVerdict) : AudioEvent() {

@@ -178,7 +178,7 @@ class ReceiverConfig(
  * 扬声器（手机的声音）：向手机提议的传输方式和编码、要不要声明多音频总线（导航单独一路），以及哪些手机要退回 AAC。
  * 默认 TCP + AAC + 多声道分流。编码选 PCM 时扬声器能力改为声明 PCM，实际编码以收到的载荷为准；[aacPhones] 里的手机
  * （编号见 [io.github.gcbond.openhc.core.dmsdp.audio.PhoneRef]，应用按「PCM 不出声」记下的）这次连接改声明 AAC。
- * 传输方式 TCP 时按手机选（先 TCP，[udpPhones] 里的手机和不应答 TCP 的手机用 UDP），UDP 时一律 UDP；
+ * 传输方式 TCP 时按手机选（先 TCP，[udpPhones] 里的手机和不认 TCP 的手机用 UDP），UDP 时一律 UDP；
  * FillP 本机没有实现，只用来对照手机的反应。
  */
 class AudioSettings(

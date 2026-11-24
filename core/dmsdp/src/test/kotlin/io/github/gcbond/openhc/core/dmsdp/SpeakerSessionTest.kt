@@ -346,6 +346,56 @@ class SpeakerSessionTest {
         assertEquals(1, audio.events.count { it is AudioEvent.TransportFallback })
     }
 
+    private fun cseqOf(setup: String): String = Regex("CSeq: (\\d+)").find(setup)!!.groupValues[1]
+
+    private fun accept(session: DmsdpSession, cseq: String, at: Long) =
+        session.feed(DmsdpChannel.CONTROL, phone.encryptedText("DMSDP/1.0 200 OK\r\nCSeq: $cseq\r\n\r\n"), at)
+
+    /**
+     * 手机用 200 应答了 TCP 的 SETUP，却过了好几秒都不连数据端口：同一次连接里第一次只记一笔，第二次才改用 UDP
+     * （带上依据），之后的数据会话用 UDP。
+     */
+    @Test
+    fun phoneAcceptingTcpSetupButNeverConnectingSwitchesToUdpOnTheSecondTime() {
+        val audio = AudioRecorder()
+        val session = toSetupSent(audio)
+        accept(session, "2", 1_100)
+        session.feed(DmsdpChannel.CONTROL, trigger("TEARDOWN", cseq = "6"), 7_000)
+        assertTrue(audio.events.none { it is AudioEvent.TransportFallback }, "第一次只记一笔")
+
+        val second = session.feed(DmsdpChannel.CONTROL, trigger("OPTIONS", sessionId = "78", cseq = "7"), 7_100)
+        assertEquals(AudioTransport.TCP, second.filterIsInstance<DmsdpAction.OpenAudioListeners>().single().transport)
+        val setup = lastSetup(session.audioListenersReady(40200, 7_150))
+        accept(session, cseqOf(setup), 7_200)
+        session.feed(DmsdpChannel.CONTROL, trigger("TEARDOWN", sessionId = "78", cseq = "8"), 12_300)
+        val fallback = audio.only<AudioEvent.TransportFallback>()
+        assertEquals(PhoneRef.keyOf(Synthetic.PEER_ID), fallback.phone?.key)
+        assertEquals(AudioEvent.TransportFallback.ACCEPTED_NO_CONNECT, fallback.reason)
+
+        val third = session.feed(DmsdpChannel.CONTROL, trigger("OPTIONS", sessionId = "79", cseq = "9"), 12_400)
+        assertEquals(AudioTransport.UDP, third.filterIsInstance<DmsdpAction.OpenAudioListeners>().single().transport)
+    }
+
+    /** 应答后很快就拆掉、或者应答后连上了数据端口：都不算「应答了却不连」，一直用 TCP。 */
+    @Test
+    fun quickTeardownsAndConnectedSessionsStayOnTcp() {
+        val audio = AudioRecorder()
+        val session = toSetupSent(audio)
+        accept(session, "2", 1_100)
+        session.feed(DmsdpChannel.CONTROL, trigger("TEARDOWN", cseq = "6"), 3_000)
+        session.feed(DmsdpChannel.CONTROL, trigger("OPTIONS", sessionId = "78", cseq = "7"), 3_100)
+        accept(session, cseqOf(lastSetup(session.audioListenersReady(40200, 3_150))), 3_200)
+        session.onConnected(DmsdpChannel.AUDIO, 3_250)
+        session.feed(DmsdpChannel.CONTROL, trigger("TEARDOWN", sessionId = "78", cseq = "8"), 20_000)
+        session.feed(DmsdpChannel.CONTROL, trigger("OPTIONS", sessionId = "79", cseq = "9"), 20_100)
+        accept(session, cseqOf(lastSetup(session.audioListenersReady(40300, 20_150))), 20_200)
+        val last = session.feed(DmsdpChannel.CONTROL, trigger("TEARDOWN", sessionId = "79", cseq = "10"), 22_000)
+        assertTrue(audio.events.none { it is AudioEvent.TransportFallback }, audio.events.toString())
+        assertTrue(last.isNotEmpty())
+        val next = session.feed(DmsdpChannel.CONTROL, trigger("OPTIONS", sessionId = "80", cseq = "11"), 22_100)
+        assertEquals(AudioTransport.TCP, next.filterIsInstance<DmsdpAction.OpenAudioListeners>().single().transport)
+    }
+
     /** 手机在 UDP 名单里：第一次就用 UDP。正常应答 TCP 的手机不改。 */
     @Test
     fun udpPhonesStartWithUdpAndAnsweringPhonesStayOnTcp() {

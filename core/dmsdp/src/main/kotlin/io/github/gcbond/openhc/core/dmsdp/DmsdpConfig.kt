@@ -145,8 +145,9 @@ class DmsdpConfig(
      *
      * 手机要放声音时在控制连接上触发一次数据会话，车机回 SETUP；传输方式和实际声明的编码决定 SETUP 里的
      * `Fillp`、`TCP`、`Codec` 三个头部（`Codec` 不影响手机选哪种编码），见 [AudioTransport]、[AudioCodec]。
-     * 传输方式：[transport] 是 TCP 时按手机选，先用 TCP（不丢包），手机在 [udpPhones] 里（按手机记下的「不应答 TCP 的 SETUP」，
-     * 老鸿蒙就是这样）时用 UDP；这次连接里手机不应答 TCP 的 SETUP、直接拆掉数据会话时，之后的数据会话也改用 UDP。
+     * 传输方式：[transport] 是 TCP 时按手机选，先用 TCP（不丢包），手机在 [udpPhones] 里（按手机记下的「不认 TCP」）时用 UDP。
+     * 这次连接里看出手机不认 TCP 时，之后的数据会话也改用 UDP：不应答 TCP 的 SETUP、直接拆掉数据会话（老鸿蒙）；
+     * 或者用 200 应答了却好几秒都不连数据端口、同一次连接里出现两次（有的荣耀手机）。
      * [transport] 是 UDP 时一律 UDP（调试用）。
      * 这里的默认值取最稳妥的（AAC）；应用的设置默认要 PCM，配合按手机退回 AAC。
      */
