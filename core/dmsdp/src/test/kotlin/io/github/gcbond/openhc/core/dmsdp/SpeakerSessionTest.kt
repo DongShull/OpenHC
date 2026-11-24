@@ -376,6 +376,43 @@ class SpeakerSessionTest {
         assertEquals(AudioTransport.UDP, third.filterIsInstance<DmsdpAction.OpenAudioListeners>().single().transport)
     }
 
+    /**
+     * 应答了 TCP 方式的 SETUP、数据端口一直没连，声音却从控制连接送（几路不带路号，分不开）：满 5 秒当场改用 UDP，
+     * 不用等第二次。5 秒以内送来的不算（连上数据端口之前也会先送一点）。
+     */
+    @Test
+    fun soundOverControlInsteadOfTcpSwitchesToUdpRightAway() {
+        val audio = AudioRecorder()
+        val session = toSetupSent(audio)
+        accept(session, "2", 1_100)
+        val f = ControlAudioFrames
+        fun sendGroup(seq: Long, at: Long) {
+            for (frag in f.fragments(seq, f.group(f.pcm(1024, seq.toInt())), 3)) session.feed(DmsdpChannel.CONTROL, phone.encryptedFrame(frag), at)
+        }
+        sendGroup(1, 3_000)
+        assertTrue(audio.events.none { it is AudioEvent.TransportFallback }, "5 秒以内不算")
+        sendGroup(2, 6_200)
+        val fallback = audio.only<AudioEvent.TransportFallback>()
+        assertEquals(AudioEvent.TransportFallback.CONTROL_INSTEAD, fallback.reason)
+        assertEquals(PhoneRef.keyOf(Synthetic.PEER_ID), fallback.phone?.key)
+        sendGroup(3, 7_000)
+        assertEquals(1, audio.events.count { it is AudioEvent.TransportFallback }, "只报一次")
+        val next = session.feed(DmsdpChannel.CONTROL, trigger("OPTIONS", sessionId = "78", cseq = "7"), 7_100)
+        assertEquals(AudioTransport.UDP, next.filterIsInstance<DmsdpAction.OpenAudioListeners>().single().transport)
+    }
+
+    /** 连上了数据端口的手机，之后控制连接上再送声音也不改 UDP。 */
+    @Test
+    fun soundOverControlAfterTheDataConnectionStaysOnTcp() {
+        val audio = AudioRecorder()
+        val session = toSetupSent(audio)
+        accept(session, "2", 1_100)
+        session.onConnected(DmsdpChannel.AUDIO, 1_150)
+        val f = ControlAudioFrames
+        for (frag in f.fragments(1, f.group(f.pcm(1024, 1)), 3)) session.feed(DmsdpChannel.CONTROL, phone.encryptedFrame(frag), 8_000)
+        assertTrue(audio.events.none { it is AudioEvent.TransportFallback }, audio.events.toString())
+    }
+
     /** 应答后很快就拆掉、或者应答后连上了数据端口：都不算「应答了却不连」，一直用 TCP。 */
     @Test
     fun quickTeardownsAndConnectedSessionsStayOnTcp() {
@@ -569,6 +606,38 @@ class SpeakerSessionTest {
         val summary = audio.only<AudioEvent.Ended>().summary
         assertEquals(0L, summary.sequenceGaps, "各路分开计序号，交错不算跳变")
         assertTrue("第 8 路 4 包" in summary.streams && "第 0 路 2 包" in summary.streams, summary.streams)
+    }
+
+    /** 同一个 SSRC 上靠包尾路号分成两路（第 8 路音乐、分流的 4096 即第 0 路导航）：「放到哪个通道」每路只报一次。 */
+    @Test
+    fun lanesSharingAnSsrcAreReportedOncePerLane() {
+        val audio = AudioRecorder()
+        val session = toSetupSent(audio)
+        session.onConnected(DmsdpChannel.AUDIO, 1_300)
+        session.feed(DmsdpChannel.CONTROL, focus(14, "{\"contentType\":1,\"focusType\":3,\"usage\":12}"), 1_350)
+        fun marked(index: Int, bus: Int): ByteArray {
+            val pcm = AudioSynthetic.pcm(index * 256, frames = 256)
+            val header = ByteArray(12)
+            header[1] = 1
+            header[2] = 1
+            header[3] = 1
+            header[10] = (pcm.size ushr 8).toByte()
+            header[11] = pcm.size.toByte()
+            return header + pcm + ByteArray(4) { (bus ushr (8 * it)).toByte() }
+        }
+        val ssrc = 0x0001_03EBL
+        var musicSeq = 10
+        var navSeq = 100
+        val order = listOf(8, 8, 8, 8, 4096, 8, 4096, 8, 4096, 8)
+        var wire = ByteArray(0)
+        order.forEachIndexed { i, bus ->
+            val seq = if (bus == 8) musicSeq++ else navSeq++
+            wire += AudioSynthetic.frame(FrameKind.LENGTH32, AudioSynthetic.rtp(seq, marked(i, bus), ssrc = ssrc))
+        }
+        session.feed(DmsdpChannel.AUDIO, wire, 0, wire.size, 1_400)
+        assertEquals(order.map { if (it == 8) 8 to AudioRoute.MEDIA else 0 to AudioRoute.NAVIGATION }, audio.routes)
+        val routed = audio.events.filterIsInstance<AudioEvent.StreamRouted>().map { it.bus to it.route }
+        assertEquals(listOf(8 to AudioRoute.MEDIA, 0 to AudioRoute.NAVIGATION), routed)
     }
 
     /** 还没看出分流时第 0 路当媒体（不分流的手机导航混在这一路里）；收到第 8 路之后第 0 路才单独放。 */

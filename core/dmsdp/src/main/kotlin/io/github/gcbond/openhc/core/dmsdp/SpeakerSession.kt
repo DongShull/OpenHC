@@ -149,8 +149,9 @@ internal class SpeakerSession(
             router.onBus(packet.bus)?.let { note(stream.info, it) }
             val route = router.route(packet.bus, packet.usage)
             packet.route = route
-            if (routed[packet.ssrc] != route && (routed.size < MAX_ROUTED_STREAMS || packet.ssrc in routed)) {
-                routed[packet.ssrc] = route
+            // 按路记：同一个 SSRC 上可能有几路（包尾路号不同），各报一次，之后只在换通道时再报。
+            if (routed[packet.lane] != route && (routed.size < MAX_ROUTED_STREAMS || packet.lane in routed)) {
+                routed[packet.lane] = route
                 emit(AudioEvent.StreamRouted(stream.info, packet.ssrc, packet.bus, packet.usage, route))
             }
             if (firstPacket) {
@@ -272,8 +273,23 @@ internal class SpeakerSession(
         var recognized = false
         using(out) {
             recognized = controlAudio.feed(payload) { group -> emitControlPcm(group) }
+            if (recognized) checkControlInstead(nowMillis)
         }
         return recognized
+    }
+
+    /**
+     * TCP 方式的 SETUP 已经应答了 [ACCEPTED_NO_CONNECT_MILLIS] 以上、数据端口还没连，声音却从控制连接送来：这台手机不走 TCP
+     * 的数据连接（它把声音塞进控制连接，几路声音不带路号，导航和音乐分不开），之后的数据会话改用 UDP。
+     * 应答后很快连上数据端口的手机在连上之前也会从控制连接先送一点，碰不到这个时限。
+     */
+    private fun checkControlInstead(nowMillis: Long) {
+        val stream = current ?: return
+        if (udpFallback || speaker.transport != AudioTransport.TCP || stream.info.transport != AudioTransport.TCP) return
+        if (stream.data != null || stream.acceptedAtMillis < 0 || nowMillis - stream.acceptedAtMillis < ACCEPTED_NO_CONNECT_MILLIS) return
+        udpFallback = true
+        note(stream.info, "手机应答了 SETUP，${(nowMillis - stream.acceptedAtMillis) / 1000} 秒都没连数据端口，声音一直从控制连接送：之后的数据会话改用 UDP")
+        emit(AudioEvent.TransportFallback(peer, AudioEvent.TransportFallback.CONTROL_INSTEAD))
     }
 
     /**

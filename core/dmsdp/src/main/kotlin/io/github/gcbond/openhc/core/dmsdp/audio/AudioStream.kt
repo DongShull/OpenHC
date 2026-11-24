@@ -235,7 +235,7 @@ sealed class AudioEvent {
      */
     /**
      * 手机不认 TCP 方式的数据会话：这次连接之后的数据会话改用 UDP，应用应记下这台手机（下次连接直接用 UDP）。
-     * [phone] 认不出时为 null；[reason] 是看出来的依据（[NO_ANSWER] 或 [ACCEPTED_NO_CONNECT]）。
+     * [phone] 认不出时为 null；[reason] 是看出来的依据（[NO_ANSWER]、[ACCEPTED_NO_CONNECT] 或 [CONTROL_INSTEAD]）。
      */
     class TransportFallback(val phone: PhoneRef?, val reason: String = NO_ANSWER) : AudioEvent() {
         override fun toString() = "手机（${phone ?: "认不出是哪台手机"}）$reason，之后的数据会话改用 UDP"
@@ -243,6 +243,7 @@ sealed class AudioEvent {
         companion object {
             const val NO_ANSWER = "不应答 TCP 方式的 SETUP"
             const val ACCEPTED_NO_CONNECT = "应答了 TCP 方式的 SETUP、却好几次都不连数据端口"
+            const val CONTROL_INSTEAD = "应答了 TCP 方式的 SETUP、却不连数据端口，把声音改从控制连接送"
         }
     }
 
