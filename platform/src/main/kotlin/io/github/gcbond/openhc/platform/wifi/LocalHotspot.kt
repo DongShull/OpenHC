@@ -68,7 +68,7 @@ interface LocalHotspotHandle {
  *
  * 系统的要求：安卓 8～12 要精确位置权限、系统定位开关打开；安卓 13 起要「附近的 WiFi 设备」权限；应用要在前台。
  * 定位权限是「使用期间允许」时，只有界面在前台才算数，光有前台服务不算（2026-11-22 安卓 10 车机实测：界面在后台时
- * 系统拒绝「does not have Coarse/Fine Location permission」）。车机已经开着个人热点、或在共享网络时开不了。
+ * 系统拒绝「does not have Coarse/Fine Location permission」）。车机设置里的个人热点开着时开不了。
  * 权限由调用方在开始前确认。
  */
 // 权限由调用方在开始前确认（见类注释）；没有时系统拒绝申请或回失败，都按失败报。
@@ -506,7 +506,7 @@ class LocalHotspotOwner private constructor(context: Context) {
         WifiManager.LocalOnlyHotspotCallback.ERROR_GENERIC ->
             "系统内部错误（刚关掉热点又马上申请、或安卓 8～12 系统定位开关没开时常见）"
         WifiManager.LocalOnlyHotspotCallback.ERROR_INCOMPATIBLE_MODE ->
-            "当前状态开不了：车机可能开着个人热点或在共享网络，或者本应用不在前台"
+            "系统不让再开一个热点：车机设置里的个人热点可能正开着，或者本应用不在前台"
         WifiManager.LocalOnlyHotspotCallback.ERROR_TETHERING_DISALLOWED -> "系统策略不允许开热点"
         else -> "原因 $reason"
     }
