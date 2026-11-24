@@ -95,6 +95,7 @@ internal fun rememberWirelessSettingsState(): WirelessSettingsState {
 internal fun WiredOnlySetting(state: WirelessSettingsState) {
     SwitchRow(
         title = stringResource(R.string.settings_wireless_wired_only),
+        summary = stringResource(R.string.settings_wireless_wired_only_summary),
         checked = state.wiredOnly,
         description = stringResource(R.string.settings_wireless_wired_only_hint),
         note = if (state.wiredOnly) stringResource(R.string.settings_wireless_wired_only_note) else null,
@@ -107,6 +108,7 @@ internal fun WiredOnlySetting(state: WirelessSettingsState) {
 internal fun ConnectOnBluetoothSetting(state: WirelessSettingsState) {
     SwitchRow(
         title = stringResource(R.string.settings_wireless_connect_on_bt),
+        summary = stringResource(R.string.settings_wireless_connect_on_bt_summary),
         checked = state.connectOnBluetooth,
         description = stringResource(R.string.settings_wireless_connect_on_bt_hint),
         onCheckedChange = state::changeConnectOnBluetooth,
@@ -117,12 +119,13 @@ internal fun ConnectOnBluetoothSetting(state: WirelessSettingsState) {
 @Composable
 internal fun WirelessModeSetting(state: WirelessSettingsState) {
     if (!WirelessPreferences.wifiDirectSupported) return
-    ChoiceRow(
+    CardChoiceRow(
         title = stringResource(R.string.settings_wireless_mode),
+        summary = stringResource(R.string.settings_wireless_mode_summary),
         options = listOf(
-            stringResource(R.string.settings_wireless_mode_hotspot),
-            stringResource(R.string.settings_wireless_mode_direct),
-            stringResource(R.string.settings_wireless_mode_car),
+            CardOption(stringResource(R.string.settings_wireless_mode_hotspot), stringResource(R.string.settings_wireless_mode_hotspot_text)),
+            CardOption(stringResource(R.string.settings_wireless_mode_direct), stringResource(R.string.settings_wireless_mode_direct_text)),
+            CardOption(stringResource(R.string.settings_wireless_mode_car), stringResource(R.string.settings_wireless_mode_car_text)),
         ),
         selected = when {
             state.carHotspot -> 2
@@ -169,6 +172,7 @@ private fun CarHotspotFields(state: WirelessSettingsState) {
     }
     ChoiceRow(
         title = stringResource(R.string.settings_car_hotspot_band),
+        summary = stringResource(R.string.settings_car_hotspot_band_summary),
         options = listOf("2.4 GHz", "5 GHz"),
         selected = if (state.carHotspotFiveGhz) 1 else 0,
         description = stringResource(R.string.settings_car_hotspot_band_hint),

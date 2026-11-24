@@ -101,6 +101,7 @@ internal fun BootStartSettingsSection(autoConnect: Boolean = false, extraRows: @
     SettingsGroup(stringResource(R.string.settings_boot_title)) {
         SwitchRow(
             title = stringResource(R.string.settings_boot),
+            summary = stringResource(R.string.settings_boot_summary),
             checked = enabled,
             description = stringResource(R.string.settings_boot_hint),
             note = if (enabled) stringResource(afterBoot) else null,
@@ -113,6 +114,7 @@ internal fun BootStartSettingsSection(autoConnect: Boolean = false, extraRows: @
         extraRows()
         SwitchRow(
             title = stringResource(R.string.settings_boot_silent),
+            summary = stringResource(R.string.settings_boot_silent_summary),
             checked = silent,
             description = stringResource(R.string.settings_boot_silent_hint),
             note = silentNote,

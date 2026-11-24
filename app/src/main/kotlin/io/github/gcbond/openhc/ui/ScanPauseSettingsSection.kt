@@ -65,6 +65,7 @@ internal fun ScanPauseSetting() {
         status.phase == ScanPause.Phase.IDLE && status.last != ScanSwitchResult.DONE && status.last != ScanSwitchResult.READY
     SwitchRow(
         title = stringResource(R.string.settings_scan_pause),
+        summary = stringResource(R.string.settings_scan_pause_summary),
         checked = enabled,
         description = stringResource(R.string.settings_scan_pause_hint),
         note = note?.let { stringResource(it) },
@@ -107,7 +108,7 @@ private fun ScanPauseConfirmDialog(onCancel: () -> Unit, onConfirm: () -> Unit) 
         ) {
             Text(stringResource(R.string.settings_scan_pause), style = UiType.status, color = Palette.Text)
             Text(
-                stringResource(R.string.settings_scan_pause_hint),
+                stringResource(R.string.settings_scan_pause_confirm_text),
                 style = UiType.rowTitle(compact).copy(lineHeight = 1.5.em, fontWeight = FontWeight.Normal),
                 color = Palette.Text,
                 modifier = Modifier

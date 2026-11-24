@@ -40,6 +40,7 @@ internal fun RestoreWifiSetting() {
     var restore by remember { mutableStateOf(prefs.restoreWifiOnExit) }
     SwitchRow(
         title = stringResource(R.string.settings_wireless_restore),
+        summary = stringResource(R.string.settings_wireless_restore_summary),
         checked = restore,
         description = stringResource(R.string.settings_wireless_restore_hint),
     ) {
@@ -70,7 +71,7 @@ internal fun WifiRestoreCard(modifier: Modifier = Modifier) {
     val wireless = remember(context) { (context.applicationContext as? OpenHcApp)?.wireless } ?: return
     val needed by wireless.wifiRestore.needsUser.collectAsState()
     if (!needed) return
-    CardBox(modifier.fillMaxWidth(), color = Palette.Warn.copy(alpha = RESTORE_TINT)) {
+    CardBox(modifier.fillMaxWidth(), color = Palette.WarnBackground, border = Palette.WarnBorder) {
         Text(stringResource(R.string.wireless_restore_title), style = UiType.status, color = Palette.Warn)
         Text(
             stringResource(R.string.wireless_restore_text),
@@ -91,9 +92,6 @@ internal fun WifiRestoreCard(modifier: Modifier = Modifier) {
         }
     }
 }
-
-/** 提示卡片的底色：提醒色叠一层淡的（和身份参数引导卡片一样）。 */
-private const val RESTORE_TINT = 0.16f
 
 /**
  * 打开系统的 WiFi 开关：安卓 10 起先试系统的 WiFi 面板，没有就退到 WiFi 设置页；都打不开提示车主自己去车机设置里开。

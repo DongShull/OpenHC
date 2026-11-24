@@ -138,6 +138,7 @@ class MainActivity : ComponentActivity() {
     override fun onCreate(savedInstanceState: Bundle?) {
         super.onCreate(savedInstanceState)
         settings = AppSettings(this)
+        Palette.dark = settings.darkTheme
         val identity = IdentityLoader.load(this)
         val actions = HomeActions(
             onStart = { requestStart(StartKind.START) },

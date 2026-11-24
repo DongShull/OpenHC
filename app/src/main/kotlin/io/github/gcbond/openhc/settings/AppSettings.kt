@@ -44,6 +44,11 @@ class AppSettings(context: Context) {
         get() = prefs.getBoolean(KEY_FULL_SCREEN, true)
         set(value) = prefs.edit { putBoolean(KEY_FULL_SCREEN, value) }
 
+    /** 界面用深色（默认）还是浅色：页面顶上的太阳 / 月亮切换。 */
+    var darkTheme: Boolean
+        get() = prefs.getBoolean(KEY_DARK_THEME, true)
+        set(value) = prefs.edit { putBoolean(KEY_DARK_THEME, value) }
+
     /** 安卓 13 起的通知权限问过一次了（拒绝了也不再追问）。 */
     var notificationPermissionAsked: Boolean
         get() = prefs.getBoolean(KEY_NOTIFICATION_ASKED, false)
@@ -57,5 +62,6 @@ class AppSettings(context: Context) {
         const val KEY_USB_ATTACH_ACCEPTED = "usb_attach_accepted"
         const val KEY_NOTIFICATION_ASKED = "notification_permission_asked"
         const val KEY_FULL_SCREEN = "full_screen"
+        const val KEY_DARK_THEME = "dark_theme"
     }
 }
