@@ -112,6 +112,11 @@ class WirelessController(
     private val stopWiredWaiting: () -> Unit = {},
     /** 让有线回到等插线（为无线让路之后，无线没拨成或连接结束时）。 */
     private val resumeWiredWaiting: () -> Unit = {},
+    /**
+     * 车机上插着能走有线的手机。插线会拉起有线，但有线的开始请求生效前有一小段时间状态还没变（[wiredActive] 为假），
+     * 自动拨手机看这一项，免得和刚开始的有线同时进行。
+     */
+    private val phoneOnCable: () -> Boolean = { false },
 ) {
 
     /** 前台服务监听：要不要留在前台、通知内容要不要更新。在主线程上回调。 */
@@ -673,6 +678,10 @@ class WirelessController(
                 setAutoHold(AutoHold.WIRED_ACTIVE)
             }
             return
+        }
+        if (phoneOnCable()) {
+            Log.i(TAG, "手机插着数据线，有线优先，不拨手机（$why）")
+            return giveUp()
         }
         val adapter = BluetoothStatus.adapter(app)
         val name = adapter?.let { phoneName(it, address) }
