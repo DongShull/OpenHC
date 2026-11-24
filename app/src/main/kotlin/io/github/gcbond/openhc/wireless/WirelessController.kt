@@ -913,7 +913,8 @@ class WirelessController(
                     // 车机自带热点是车主开的：不开本地热点，也不排「恢复车机 WiFi」。
                     CarHotspot(app, car, events) { Log.i(TAG, "[$id] 车机热点：$it") }
                 } else {
-                    wifiRestore.onHotspotRequested()
+                    // 收尾已经开始（停止之前排着的认证通过才走到这里）：别把收尾马上要排的复查取消掉。
+                    if (!tearingDown) wifiRestore.onHotspotRequested()
                     LocalHotspotOwner.get(app).create(events) { Log.i(TAG, "[$id] 热点：$it") }
                 }
             },
@@ -961,9 +962,13 @@ class WirelessController(
             )
         }
 
-        /** 协议线程建、调度线程收尾时关。 */
+        /**
+         * 协议线程建、调度线程收尾时关，两边都在 [decoderLock] 里改。收尾在关执行器之前就置了 [tearingDown]：
+         * 执行器关闭超时、强行放弃时协议线程可能还在建解码器，靠这把锁保证建了的一定被收尾关掉，收尾之后不再建。
+         */
         @Volatile
         var videoDecoder: VideoDecoder? = null
+        val decoderLock = Any()
 
         @Volatile
         var inputReady = false
@@ -1053,10 +1058,13 @@ class WirelessController(
     }
 
     private fun prepareDecoder(current: Attempt, video: VideoParameters) {
-        val decoder = current.videoDecoder ?: VideoDecoder(DecoderListener(current.id)).also {
-            current.videoDecoder = it
-            current.sink.target = it
-            mutableDecoder.value = it
+        val decoder = synchronized(current.decoderLock) {
+            if (current.tearingDown) return
+            current.videoDecoder ?: VideoDecoder(DecoderListener(current.id)).also {
+                current.videoDecoder = it
+                current.sink.target = it
+                mutableDecoder.value = it
+            }
         }
         decoder.prepare(video.width, video.height, video.fps)
     }
@@ -1109,12 +1117,14 @@ class WirelessController(
         current.beacon?.stop("连接收尾")
         // 1. 协议层：会话按顺序收尾（TEARDOWN、关蓝牙、拆 WiFi 网络）；已经结束时立即返回，否则最多阻塞几秒。
         current.runner.close()
-        // 2. 声音、解码器：执行器已经停了，不会再有回调。
+        // 2. 声音、解码器：执行器停了就不会再有回调；关闭超时、强行放弃时协议线程可能还在建解码器，见 [Attempt.decoderLock]。
         current.audio.close()
-        current.sink.target = null
-        current.videoDecoder?.close()
-        current.videoDecoder = null
-        mutableDecoder.value = null
+        val decoder = synchronized(current.decoderLock) {
+            current.sink.target = null
+            mutableDecoder.value = null
+            current.videoDecoder.also { current.videoDecoder = null }
+        }
+        decoder?.close()
         // 3. 平台资源兜底：正常收尾时会话已经逐个关过，这里什么都不剩；执行器意外退出时靠这一步撤掉服务记录、拆 WiFi 网络。
         current.executor.closeAll()
         maybeFinish(current)

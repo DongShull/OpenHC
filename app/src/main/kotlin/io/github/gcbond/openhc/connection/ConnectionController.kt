@@ -398,6 +398,9 @@ class ConnectionController(context: Context) {
         var wired: WiredSession? = null
         var wiredEnded = false
         var replugRequired = false
+
+        /** 有线会话走到过「发 carInfo」或之后的状态：可能已经用掉了这次插入（有线会话没按时报结束时据此判断要不要拔线重插）。 */
+        var carInfoMaybeSent = false
         var touchNegotiated = false
         var keyNegotiated = false
         @Volatile
@@ -525,6 +528,11 @@ class ConnectionController(context: Context) {
     private fun onWiredState(current: Attempt, state: WiredState) {
         if (current !== attempt || current.finished) return
         state.toProgress()?.let { apply(ConnectionSignal.Wired(it)) }
+        if (state is WiredState.SendingCarInfo || state is WiredState.WaitingForPhoneSwitch ||
+            state is WiredState.OpeningNetwork || state is WiredState.Connected
+        ) {
+            current.carInfoMaybeSent = true
+        }
         current.waitingForSwitch = state is WiredState.WaitingForPhoneSwitch
         if (current.waitingForSwitch) watchUnplugWhileSwitching(current)
         if (state is WiredState.Ended) {
@@ -620,6 +628,8 @@ class ConnectionController(context: Context) {
                 if (!current.finished && !current.wiredEnded) {
                     Log.w(TAG, "有线会话 ${WIRED_STOP_TIMEOUT_MS / 1000} 秒内没有结束，不再等（下次开始可能报「已有有线会话」）")
                     current.wiredEnded = true
+                    // 它的结束报告之后才到也没人收了：发 carInfo 时就当这次插入已经用掉，宁可多要一次拔线重插。
+                    current.replugRequired = current.carInfoMaybeSent
                     maybeFinish(current)
                 }
             }, WIRED_STOP_TIMEOUT_MS)
