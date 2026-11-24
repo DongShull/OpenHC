@@ -33,11 +33,14 @@ object AudioBus {
 
     /**
      * 一路声音的编号，同一个值的包是同一路：各自按序号排、放进同一个播放器。载荷不带包尾路号（[trailerBus] < 0）时
-     * 是 SSRC 的源编号（[keyOf]）；带的时候是 1000 + 包尾路号（按 32 位无符号回绕），SSRC 完全不参与——
+     * 是 SSRC 的源编号（[keyOf]）；带的时候是 1000 + 包尾路号，和 SSRC 一样只留低 12 位，SSRC 不参与——
      * 包尾路号相同的包就是同一路，不管 SSRC 怎么变。
+     *
+     * 只留低 12 位是因为包尾写的是多音频总线策略串里的完整路号：分流那一路是 4096，SSRC 里同一路回绕成 1000，
+     * 也就是第 0 路（[SPLIT]）。两边按同一套编号算，才能把分流那一路认成导航。
      */
     fun lane(ssrc: Long, trailerBus: Long): Long =
-        if (trailerBus < 0) keyOf(ssrc) else (BASE + trailerBus) and U32_MASK
+        if (trailerBus < 0) keyOf(ssrc) else (BASE + trailerBus) and KEY_MASK
 
     /** [lane] 对应的路号：编号减 1000，不在约定范围时为 [UNKNOWN]。 */
     fun ofLane(lane: Long): Int = if (lane in BASE..BASE + MAX_BUS) (lane - BASE).toInt() else UNKNOWN
@@ -49,7 +52,6 @@ object AudioBus {
     private const val USAGE_SHIFT = 16
     private const val KEY_BITS = 12
     private const val KEY_MASK = (1L shl KEY_BITS) - 1
-    private const val U32_MASK = 0xFFFF_FFFFL
 }
 
 /**
