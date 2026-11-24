@@ -412,9 +412,13 @@ class ConnectionController(context: Context) {
         /** 等切换时手机已经连续拔下够久：拔线重插的要求已经满足，下一次不用再等。 */
         var replugSatisfied = false
 
-        /** 协议线程建、调度线程收尾时关。 */
+        /**
+         * 协议线程建、调度线程收尾时关，两边都在 [decoderLock] 里改。收尾在关执行器之前就置了 [tearingDown]：
+         * 执行器关闭超时、强行放弃时协议线程可能还在建解码器，靠这把锁保证建了的一定被收尾关掉，收尾之后不再建。
+         */
         @Volatile
         var videoDecoder: VideoDecoder? = null
+        val decoderLock = Any()
 
         /** 解码器选项（上屏节拍开关），开始连接时在调度线程上读一次设置。 */
         val videoOptions: VideoDecoder.Options = VideoPreferences(app).decoderOptions()
@@ -447,10 +451,13 @@ class ConnectionController(context: Context) {
     }
 
     private fun prepareDecoder(current: Attempt, video: VideoParameters) {
-        val decoder = current.videoDecoder ?: VideoDecoder(DecoderListener(current.id), current.videoOptions).also {
-            current.videoDecoder = it
-            current.sink.target = it
-            mutableDecoder.value = it
+        val decoder = synchronized(current.decoderLock) {
+            if (current.tearingDown) return
+            current.videoDecoder ?: VideoDecoder(DecoderListener(current.id), current.videoOptions).also {
+                current.videoDecoder = it
+                current.sink.target = it
+                mutableDecoder.value = it
+            }
         }
         decoder.prepare(video.width, video.height, video.fps)
     }
@@ -598,11 +605,13 @@ class ConnectionController(context: Context) {
         // 声音：执行器已经停了，不会再有音频回调。
         current.audio.close()
         current.mic.close()
-        // 2. 解码器：执行器已经停了，不会再有帧送进来。
-        current.sink.target = null
-        current.videoDecoder?.close()
-        current.videoDecoder = null
-        mutableDecoder.value = null
+        // 2. 解码器：执行器停了就不会再有帧送进来；关闭超时、强行放弃时协议线程可能还在建，见 [Attempt.decoderLock]。
+        val decoder = synchronized(current.decoderLock) {
+            current.sink.target = null
+            mutableDecoder.value = null
+            current.videoDecoder.also { current.videoDecoder = null }
+        }
+        decoder?.close()
         // 3. 有线链路：稍等一下，让 TEARDOWN 和关连接的包经 TUN、USB 发到手机，再停。
         val wired = current.wired
         if (wired != null && !current.wiredEnded) {
