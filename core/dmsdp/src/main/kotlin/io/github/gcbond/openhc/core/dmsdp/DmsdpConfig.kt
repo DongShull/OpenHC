@@ -51,6 +51,8 @@ class DmsdpConfig(
     val keepAliveRetry: Int = 160,
     /** 加密选择应答里的 `Platform`。0 为普通平台。 */
     val platform: Int = 0,
+    /** 认证时手机报的 HiCar 版本（没有为 null）：扬声器按手机记的传输方式时连版本一起比对，手机升级后重新试。 */
+    val phoneVersion: String? = null,
 ) {
     val bluetoothMac: String = bluetoothMac.uppercase()
 

@@ -6,6 +6,7 @@ import io.github.gcbond.openhc.core.dmsdp.audio.AudioCodec
 import io.github.gcbond.openhc.core.dmsdp.audio.AudioTransport
 import io.github.gcbond.openhc.core.dmsdp.audio.MicProfile
 import io.github.gcbond.openhc.core.dmsdp.audio.PcmVerdict
+import io.github.gcbond.openhc.core.dmsdp.audio.PhoneRef
 import io.github.gcbond.openhc.core.session.AudioSettings
 import io.github.gcbond.openhc.core.session.MicSettings
 import io.github.gcbond.openhc.platform.media.AudioStreamChoice
@@ -104,14 +105,18 @@ class AudioPreferences(context: Context) {
         prefs.edit { putString(KEY_PCM_BOOK, book.encode()) }
     }
 
-    /** 要用 UDP 传声音的手机编号（它们不应答 TCP 方式的 SETUP，见 [AudioSettings]）。 */
+    /** 要用 UDP 传声音的手机（它们不走 TCP 方式的声音连接，见 [AudioSettings]）：条目是「编号@HiCar 版本」，旧条目只有编号。 */
     fun udpPhones(): Set<String> = synchronized(LOCK) { prefs.getStringSet(KEY_UDP_PHONES, null)?.toSet() ?: emptySet() }
 
-    /** 记下一台要用 UDP 的手机（协议线程上调用）；最多记 [MAX_UDP_PHONES] 台，多了清掉重记。 */
-    fun addUdpPhone(key: String) = synchronized(LOCK) {
+    /**
+     * 记下一台要用 UDP 的手机（协议线程上调用）：同一台手机以前的条目（别的 HiCar 版本）换成这一条；
+     * 最多记 [MAX_UDP_PHONES] 台，多了清掉重记。
+     */
+    fun addUdpPhone(phone: PhoneRef) = synchronized(LOCK) {
         val now = prefs.getStringSet(KEY_UDP_PHONES, null)?.toMutableSet() ?: HashSet()
+        now.removeAll { PhoneRef.entryOf(it, phone.key) }
         if (now.size >= MAX_UDP_PHONES) now.clear()
-        now += key
+        now += phone.listEntry
         prefs.edit { putStringSet(KEY_UDP_PHONES, now) }
     }
 

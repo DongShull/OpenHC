@@ -524,7 +524,7 @@ class DmsdpSession(
                     // 扬声器要按手机定声明（PCM 还是 AAC），所以先记下是哪台手机；正常在服务请求 104 之前到。
                     if (event is DmsdpEvent.PeerDeviceInfo) {
                         val name = (event.device["deviceName"] as? JsonPrimitive)?.takeIf { it.isString }?.content
-                        speaker?.onPeerDevice(event.deviceId, name)
+                        speaker?.onPeerDevice(event.deviceId, name, config.phoneVersion)
                     }
                     out.event(event)
                 },

@@ -80,7 +80,8 @@ class SpeakerSessionTest {
     private fun speakerSession(
         speaker: DmsdpConfig.Speaker = DmsdpConfig.Speaker(),
         audio: AudioRecorder = AudioRecorder(),
-    ): DmsdpSession = encryptedSession(config = Synthetic.config(speaker = speaker), audio = audio).first
+        phoneVersion: String? = null,
+    ): DmsdpSession = encryptedSession(config = Synthetic.config(speaker = speaker, phoneVersion = phoneVersion), audio = audio).first
 
     /** 手机的数据会话触发：头部名是小写，正文是触发字段。 */
     private fun trigger(method: String, sessionId: String = "77", cseq: String = "5", simple: String = "1", extraHeaders: String = ""): ByteArray {
@@ -450,6 +451,28 @@ class SpeakerSessionTest {
         assertTrue(answered.events.none { it is AudioEvent.TransportFallback })
         val again = tcp.feed(DmsdpChannel.CONTROL, trigger("OPTIONS", sessionId = "78", cseq = "7"), 4_100)
         assertEquals(AudioTransport.TCP, again.filterIsInstance<DmsdpAction.OpenAudioListeners>().single().transport)
+    }
+
+    /** 名单条目带 HiCar 版本：同一版本直接 UDP；手机升级后（版本不同）重新试 TCP；只有编号的旧条目任何版本都用 UDP。 */
+    @Test
+    fun udpListEntriesCarryTheHiCarVersion() {
+        val key = PhoneRef.keyOf(Synthetic.PEER_ID)
+        fun firstTransport(entries: Set<String>, version: String?): AudioTransport {
+            val session = speakerSession(speaker = DmsdpConfig.Speaker(udpPhones = entries), phoneVersion = version)
+            session.phoneDeviceInfo()
+            session.speakerProfile()
+            return session.feed(DmsdpChannel.CONTROL, trigger("OPTIONS"), 1_000)
+                .filterIsInstance<DmsdpAction.OpenAudioListeners>().single().transport
+        }
+        assertEquals(AudioTransport.UDP, firstTransport(setOf("$key@9.1.0.100"), "9.1.0.100"))
+        assertEquals(AudioTransport.TCP, firstTransport(setOf("$key@9.1.0.100"), "9.2.0.100"), "升级后重新试 TCP")
+        assertEquals(AudioTransport.UDP, firstTransport(setOf(key), "9.2.0.100"), "旧条目不分版本")
+        assertEquals(AudioTransport.TCP, firstTransport(setOf("${key}0@9.1.0.100"), "9.1.0.100"), "别的手机的条目不算")
+
+        val ref = PhoneRef(key, null, "9.1.0.100")
+        assertEquals("$key@9.1.0.100", ref.listEntry)
+        assertEquals(key, PhoneRef(key, null).listEntry)
+        assertTrue(PhoneRef.entryOf("$key@1.0", key) && PhoneRef.entryOf(key, key) && !PhoneRef.entryOf("${key}0@1.0", key))
     }
 
     /** CLOSE 和 TEARDOWN 一样：回 200、关掉对得上的会话；已经拆过的只回 200。 */

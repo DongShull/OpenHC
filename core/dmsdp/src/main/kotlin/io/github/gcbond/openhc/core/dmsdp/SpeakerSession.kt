@@ -175,8 +175,8 @@ internal class SpeakerSession(
     }
 
     /** 手机的设备信息（命令 101）：记下是哪台手机，定扬声器能力时用。 */
-    fun onPeerDevice(deviceId: String, name: String?) {
-        if (peer == null) peer = PhoneRef(PhoneRef.keyOf(deviceId), name?.take(MAX_NAME_CHARS))
+    fun onPeerDevice(deviceId: String, name: String?, version: String? = null) {
+        if (peer == null) peer = PhoneRef(PhoneRef.keyOf(deviceId), name?.take(MAX_NAME_CHARS), version?.take(MAX_VERSION_CHARS))
     }
 
     /** 服务声明（102）里扬声器属性 2102 的值；第一次调用时定下这次连接的声明。 */
@@ -480,9 +480,9 @@ internal class SpeakerSession(
         if (speaker.transport != AudioTransport.TCP) return speaker.transport
         if (udpFallback) return AudioTransport.UDP
         val phone = peer
-        if (phone != null && phone.key in speaker.udpPhones) {
+        if (phone != null && phone.listedIn(speaker.udpPhones)) {
             udpFallback = true
-            note(null, "手机 ${phone} 记着要用 UDP，数据会话用 UDP")
+            note(null, "${phone}（HiCar ${phone.version ?: "版本未知"}）记着要用 UDP，数据会话用 UDP")
             return AudioTransport.UDP
         }
         return AudioTransport.TCP
@@ -628,6 +628,7 @@ internal class SpeakerSession(
         const val ACCEPTED_NO_CONNECT_SESSIONS = 2
 
         private const val CONTROL_GROUP_HEAD_SHOWN = 32
+        private const val MAX_VERSION_CHARS = 32
 
         /** 数据会话消息里扬声器的服务类型（服务声明里是 4，这里是 3）。 */
         const val DATA_SERVICE_TYPE = "3"

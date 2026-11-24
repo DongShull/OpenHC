@@ -107,6 +107,9 @@ class WirelessReceiverSession internal constructor(
 
     private var authSucceeded = false
 
+    /** 认证时手机报的 HiCar 版本，交给 WiFi 阶段的编排器。 */
+    private var phoneVersion: String? = null
+
     /** 认证给的 16 字节会话密钥：交给内嵌的有线编排器（它自己复制）后清零。 */
     private var sessionKey: ByteArray? = null
 
@@ -634,6 +637,7 @@ class WirelessReceiverSession internal constructor(
                     sessionKey = a.sessionKey.copyOf()
                     a.sessionKey.fill(0)
                     authSucceeded = true
+                    phoneVersion = a.phoneVersion
                     authDeadline = null
                     out.common(SessionEvent.Authenticated(a.mode))
                     // 认证通过才开热点。开热点会让单射频车机断开自己的 WiFi，等扫码、等回连、
@@ -752,7 +756,7 @@ class WirelessReceiverSession internal constructor(
         val net = checkNotNull(networkInfo)
         val key = checkNotNull(sessionKey) { "认证成功之前不该进 WiFi 阶段" }
         val phaseConfig = config.wifiPhaseConfig(net.localIp)
-        wired = ReceiverSession(phaseConfig, videoSink, layers.wifiPhase(phaseConfig), ControlLink.wifi(net.localIp, key), ids)
+        wired = ReceiverSession(phaseConfig, videoSink, layers.wifiPhase(phaseConfig), ControlLink.wifi(net.localIp, key, phoneVersion), ids)
         // 内嵌的编排器已经拿到自己的副本。
         wipeKey()
         routeWired(nowMillis, out) { it.start(nowMillis) }

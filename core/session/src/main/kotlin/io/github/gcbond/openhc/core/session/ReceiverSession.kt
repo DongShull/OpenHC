@@ -135,6 +135,9 @@ class ReceiverSession internal constructor(
     /** 认证给的 16 字节会话密钥：交给 dmsdp 和 hisight（它们各自复制）后清零。 */
     private var sessionKey: ByteArray? = null
 
+    /** 手机报的 HiCar 版本：有线来自自己的认证，无线来自蓝牙上的认证（[ControlLink.phoneVersion]）。 */
+    private var phoneVersion: String? = link.phoneVersion
+
     /** 等认证监听开好的业务 19 请求。 */
     private val pendingAuthRequests = ArrayList<NearbyOutput.SocketRequest>()
 
@@ -237,7 +240,7 @@ class ReceiverSession internal constructor(
             authConn -> auth = layers.auth()
             dmsdpConn -> {
                 val key = checkNotNull(sessionKey) { "认证成功之前不该开业务 20 监听" }
-                val layer = layers.dmsdp(key, remoteHost)
+                val layer = layers.dmsdp(key, remoteHost, phoneVersion)
                 dmsdp = layer
                 handleDmsdp(call(SessionLayer.DMSDP) { layer.onConnected(DmsdpChannel.SESSION, nowMillis) }, out)
             }
@@ -552,6 +555,7 @@ class ReceiverSession internal constructor(
                     sessionKey = a.sessionKey.copyOf()
                     a.sessionKey.fill(0)
                     authSucceeded = true
+                    phoneVersion = a.phoneVersion
                     out.add(SessionEvent.Authenticated(a.mode))
                     if (pendingDmsdpRequests.isNotEmpty()) {
                         val waiting = ArrayList(pendingDmsdpRequests)

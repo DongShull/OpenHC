@@ -103,7 +103,7 @@ class ReceiverConfig(
     internal fun authConfig(): HiCarAuthConfig =
         HiCarAuthConfig(identity.authService, deviceId, authEnvelopeVersion, pin)
 
-    internal fun dmsdpConfig(phoneIp: String): DmsdpConfig = DmsdpConfig(
+    internal fun dmsdpConfig(phoneIp: String, phoneVersion: String? = null): DmsdpConfig = DmsdpConfig(
         host = identity.host,
         deviceId = deviceId,
         bluetoothMac = bluetoothText,
@@ -120,6 +120,7 @@ class ReceiverConfig(
         ),
         speaker = audio?.let { DmsdpConfig.Speaker(it.transport, it.codec, it.multiBus, it.aacPhones, it.udpPhones) },
         mic = mic?.let { DmsdpConfig.Mic(it.profile) },
+        phoneVersion = phoneVersion,
     )
 
     /** 投屏能力：屏幕和允许的编码尺寸都取画布尺寸（编码尺寸不超过画布）。 */

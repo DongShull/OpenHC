@@ -135,7 +135,7 @@ internal class AudioOutput(
                 if (event.unknownUsage) Log.w(TAG, "[$attemptId] SSRC ${event.ssrc} 带的用途 ${event.usage} 不认识，按媒体放")
             is AudioEvent.CodecVerdict -> onVerdict(event)
             is AudioEvent.TransportFallback -> event.phone?.let { phone ->
-                prefs.addUdpPhone(phone.key)
+                prefs.addUdpPhone(phone)
                 Log.i(TAG, "[$attemptId] $event；记下这台手机，下次连接直接用 UDP")
             }
             is AudioEvent.Ended -> {

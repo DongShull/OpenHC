@@ -39,6 +39,7 @@ internal object Synthetic {
         name: String = "测试车机 Ünï",
         additionalServices: List<DmsdpConfig.Service> = emptyList(),
         speaker: DmsdpConfig.Speaker? = null,
+        phoneVersion: String? = null,
     ) = DmsdpConfig(
         host = host(name),
         deviceId = SELF_ID,
@@ -48,6 +49,7 @@ internal object Synthetic {
         display = display,
         speaker = speaker,
         additionalServices = additionalServices,
+        phoneVersion = phoneVersion,
     )
 }
 
