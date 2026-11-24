@@ -93,8 +93,15 @@ class AudioPacket internal constructor(stream: AudioStreamInfo) {
     var codec: AudioCodec = stream.codec
         internal set
 
-    /** 路号（SSRC 低 16 位减 1000，见 [AudioBus]）；不在约定范围时为 [AudioBus.UNKNOWN]。 */
+    /** 路号：[lane] 减 1000（见 [AudioBus.ofLane]）；不在约定范围时为 [AudioBus.UNKNOWN]。 */
     var bus: Int = AudioBus.UNKNOWN
+        internal set
+
+    /**
+     * 这一路声音的编号（见 [AudioBus.lane]）：同一个值的包是同一路，放进同一个播放器。SSRC 会在同一路里变（用途、附加
+     * 标志位；带包尾路号时连低 12 位也可能变），所以别拿 SSRC 分播放器。
+     */
+    var lane: Long = 0L
         internal set
 
     /** 用途号（SSRC 高 16 位，安卓 `USAGE_*` 的取值，例如通话 2、铃声 6）；0 表示没带。 */

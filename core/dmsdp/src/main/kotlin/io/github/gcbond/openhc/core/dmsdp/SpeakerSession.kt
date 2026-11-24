@@ -309,6 +309,7 @@ internal class SpeakerSession(
         packet.bus = group.bus
         packet.usage = group.usage
         packet.ssrc = if (group.bus == AudioBus.UNKNOWN) 0L else (group.usage.toLong() shl 16) or (CONTROL_SSRC_BASE + group.bus)
+        packet.lane = if (group.bus == AudioBus.UNKNOWN) 0L else CONTROL_SSRC_BASE + group.bus
         router.onBus(packet.bus)?.let { note(info, it) }
         val route = if (group.service == ControlChannelAudio.SERVICE_CALL_SPEAKER) AudioRoute.CALL else router.route(packet.bus, packet.usage)
         if (control.lastRoute != route || control.lastSsrc != packet.ssrc) {
