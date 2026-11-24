@@ -5,9 +5,13 @@
 [下载安装包](https://github.com/GGBondLab/OpenHC/releases/latest) · [更新记录](CHANGELOG.md) · [报告问题](https://github.com/GGBondLab/OpenHC/issues) · [从源码构建](#构建)
 
 > **只在比亚迪车机上开发和调试。** 作者只有一台比亚迪车机和一部纯血鸿蒙的华为手机，所有功能只在这套组合上测试过。
-> 其他品牌的车机，或非纯血鸿蒙的手机上出的问题，作者没有设备，无法复现和修复；欢迎有能力的朋友自己调试，提交修复。
-> 手机是鸿蒙 4.x 及更早版本（非纯血鸿蒙）的，也可以试试另一个开源的车机端
-> [hicar-android-receiver](https://github.com/huducat586/hicar-android-receiver)（它的作者在鸿蒙 4 的手机上测过，目前只做无线）。
+> 其他品牌的车机，或非纯血鸿蒙的手机上出的问题，作者没有设备，无法复现和修复；欢迎有能力的朋友自己调试，提交修复（见[参与](#参与)）。
+>
+> 手机是鸿蒙 4.x 及更早版本（非纯血鸿蒙）的，或车机是安卓 8.0 以下的，可以试试下面这些由别人维护的版本（OpenHC 作者没有测试过）：
+>
+> - [LinkeZhang/OpenHC](https://github.com/LinkeZhang/OpenHC/releases)：OpenHC 的分支，它的作者在鸿蒙 4.2 手机上实测过，另有安卓 4.1～9 车机专用版。
+>   签名和 OpenHC 不同，装之前要先卸载 OpenHC。
+> - [hicar-android-receiver](https://github.com/huducat586/hicar-android-receiver)：另一个开源的车机端（它的作者在鸿蒙 4 的手机上测过，目前只做无线）。
 
 ## 0.2.0
 
@@ -15,7 +19,7 @@
 车机要允许安装 APK。
 
 - **有线**：USB 数据线，车机安卓 6.0 起。
-- **无线**：车机开热点，第一次手机扫码连接，之后上车自动连上；车机安卓 8.0 起。
+- **无线**：车机开热点，第一次手机扫码连接，之后上车自动连上；车机安卓 8.0 起（更老的车机见页首说明）。
 - **手机**：带 HiCar 的华为或荣耀手机（作者只在纯血鸿蒙手机上测试过）。有线连接时，手机要关闭「USB 调试」。
 
 ## 功能
@@ -74,19 +78,26 @@
 
 ## 参与
 
-欢迎提 Issue 和 Pull Request。提 Pull Request 前请注意：
+自己动手解决了某个问题（例如让某款手机、某种车机能用了）的朋友，欢迎：
+
+- **提 Pull Request**：审过后合并进来，所有车友都能用上；
+- **或者在 Issue 里说一声**：写明改了什么、在什么车机和手机上实测过，附上你的分支或安装包链接，方便其他车友参考，作者也能照着修。
+
+提 Pull Request 前请注意：
 
 - 不要提交反编译得到的代码（Java、smali、伪代码）或照着它改写的代码，代码、注释和提交说明里也不要写厂商应用的类名、文件路径。
   注释里写协议本身的事实（字段、长度、字节序、时序和为什么这样做）就好。
 - 测试数据一律用编造的值，不要用真实设备的地址、序列号、抓包或日志原文。
 - `core` 下的模块是纯 Kotlin，不能用 `android.*`，要能在安卓 6.0 上运行（构建时会检查）。
-- 提交前跑通 `./gradlew check assembleDebug`。
+- 提交前跑通 `./gradlew check assembleDebug`，并在说明里写清楚在什么车机、什么手机上实测过。用 AI 改的代码也一样。
 - 提交的代码按本项目的 GPL-3.0 许可发布。
 
 ## 致谢
 
 - **[DiPlay](https://github.com/shihabal3amri/DiPlay)**（作者 [shihabal3amri](https://github.com/shihabal3amri)）：安卓车机上的开源 CarPlay 接收端。
   OpenHC 的很多思路和做法参考了它。感谢作者的开源分享。
+- **[LinkeZhang/OpenHC](https://github.com/LinkeZhang/OpenHC)**（作者 [LinkeZhang](https://github.com/LinkeZhang)）：OpenHC 的分支，
+  让鸿蒙 4.2 手机和安卓 8.0 以下的车机也能用 OpenHC。OpenHC 0.2.5、0.2.6 对鸿蒙 4.x 手机的兼容参考了它的发现。感谢！
 - **OpenHarmony security_device_auth**：配对认证部分的代码移植自它（Apache-2.0）。
   用到的其他第三方组件和许可见 [第三方声明](docs/THIRD_PARTY_NOTICES.md)。
 
