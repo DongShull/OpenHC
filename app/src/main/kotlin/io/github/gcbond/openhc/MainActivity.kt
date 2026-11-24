@@ -36,6 +36,8 @@ import io.github.gcbond.openhc.platform.log.Log
 import io.github.gcbond.openhc.platform.net.VpnConsent
 import io.github.gcbond.openhc.settings.AppSettings
 import io.github.gcbond.openhc.settings.AudioPreferences
+import io.github.gcbond.openhc.settings.PendingSetting
+import io.github.gcbond.openhc.settings.ReconnectReminder
 import io.github.gcbond.openhc.startup.BootStart
 import io.github.gcbond.openhc.startup.BootStartPolicy
 import io.github.gcbond.openhc.ui.HomeActions
@@ -43,8 +45,10 @@ import io.github.gcbond.openhc.ui.HomeScreen
 import io.github.gcbond.openhc.ui.OpenHcTheme
 import io.github.gcbond.openhc.ui.Palette
 import io.github.gcbond.openhc.ui.ProjectionScreen
+import io.github.gcbond.openhc.ui.ReconnectReminderDialog
 import io.github.gcbond.openhc.ui.SettingsScreen
 import io.github.gcbond.openhc.ui.WirelessActions
+import io.github.gcbond.openhc.ui.pendingSettingsSnapshot
 import io.github.gcbond.openhc.wireless.WirelessController
 import io.github.gcbond.openhc.wireless.WirelessPhase
 import io.github.gcbond.openhc.wireless.WirelessStartFlow
@@ -276,6 +280,15 @@ private fun AppRoot(
     // 已经自动切到投屏页的那次连接：用户按返回回到首页后，同一次连接不再强拉回去。
     var autoShownAttempt by remember { mutableIntStateOf(0) }
     var autoShownWireless by remember { mutableIntStateOf(0) }
+    val context = LocalContext.current
+    // 进设置页时「下次连接才生效」各项的值；回首页时对比，正在进行的连接用不上的改动弹框提醒。
+    var settingsOnEntry by remember { mutableStateOf<Map<PendingSetting, String>?>(null) }
+    var reconnectReminder by remember { mutableStateOf<List<PendingSetting>>(emptyList()) }
+    var reminderWhileProjecting by remember { mutableStateOf(false) }
+    val openSettings = {
+        settingsOnEntry = pendingSettingsSnapshot(context, settings)
+        screen = Screen.SETTINGS
+    }
 
     LaunchedEffect(state.phase, state.attempt, wState.phase, wState.attempt) {
         when {
@@ -296,8 +309,19 @@ private fun AppRoot(
             state.phase == Phase.PAIRING && screen == Screen.SETTINGS -> screen = Screen.HOME
         }
     }
-    // 设置可能改了：还没连上手机的等待按新设置重开。
+    // 设置可能改了：空闲时照回到前台一样看要不要自动连接；正在进行的连接（含还在等手机的）不重开，改动要重新连接才生效，提醒一下。
     val closeSettings = {
+        val before = settingsOnEntry
+        settingsOnEntry = null
+        if (before != null) {
+            reconnectReminder = ReconnectReminder.changed(
+                before,
+                pendingSettingsSnapshot(context, settings),
+                wiredActive = ReconnectReminder.wiredUsesOldSettings(state.phase),
+                wirelessActive = ReconnectReminder.wirelessUsesOldSettings(wState.phase),
+            )
+            reminderWhileProjecting = state.phase == Phase.PROJECTING || wirelessProjecting
+        }
         wireless.onSettingsClosed()
         screen = Screen.HOME
     }
@@ -321,7 +345,7 @@ private fun AppRoot(
                         screen = Screen.PROJECTION
                     }
                 },
-                onOpenSettings = { screen = Screen.SETTINGS },
+                onOpenSettings = openSettings,
                 onOpenAppSettings = wirelessStart::openAppSettings,
                 onEnableBluetooth = wirelessStart::requestEnableBluetooth,
                 onResetTrustStore = wireless::resetTrustStoreAndStart,
@@ -332,10 +356,9 @@ private fun AppRoot(
                     screen = Screen.PROJECTION
                 }
             },
-            onOpenSettings = { screen = Screen.SETTINGS },
+            onOpenSettings = openSettings,
         )
         Screen.SETTINGS -> {
-            val context = LocalContext.current
             val screenSpec = remember { io.github.gcbond.openhc.connection.DisplayArea.screenFor(context, settings.fullScreen) }
             val systemBluetooth = remember { DeviceInfo.systemBluetoothAddress() }
             SettingsScreen(settings, screenSpec, systemBluetooth, onBack = closeSettings)
@@ -345,5 +368,8 @@ private fun AppRoot(
         } else {
             ProjectionScreen(state, decoder, touchResets, onInput = controller::sendInput)
         }
+    }
+    if (reconnectReminder.isNotEmpty() && screen == Screen.HOME) {
+        ReconnectReminderDialog(reconnectReminder, reminderWhileProjecting) { reconnectReminder = emptyList() }
     }
 }

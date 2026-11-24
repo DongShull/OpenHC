@@ -39,7 +39,8 @@ private val COLUMN_GAP = 16.dp
 /**
  * 设置页：左上「设置」、右上「返回」（和首页的「设置」同一个位置）。宽屏排两列：左列「画面」「方向盘按键」，
  * 右列「连接方式」「启动」「声音」；版本行在底下横跨两列。
- * 窄屏排一列，先左列后右列。改动在下次连接时生效。
+ * 窄屏排一列，先左列后右列。大部分设置下次连接时生效，个别项（自动连接、开机启动等）在各自说明里写了；
+ * 回首页时有连接正用着旧设置会弹框提醒（见 [io.github.gcbond.openhc.settings.ReconnectReminder]）。
  *
  * 每个小节是独立的 composable，画一个分组（[SettingsGroup]）或分组里的一行；新加的行放进对应的分组里，
  * 新的分组放进 [SettingsLeftColumn] 或 [SettingsRightColumn]。

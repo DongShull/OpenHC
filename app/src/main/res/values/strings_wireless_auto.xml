@@ -38,7 +38,7 @@
     <string name="settings_wireless_wired_only_hint">关掉无线投屏，只能插线用：车机不自动连接手机、不开热点，不影响车机连 WiFi 上网。已经连上的无线投屏照常用到断开为止。</string>
     <string name="settings_wireless_wired_only_note">「只用数据线连接」开着时，「自动连接手机」不起作用。</string>
     <string name="settings_wireless_connect_on_bt">自动连接手机（默认开）</string>
-    <string name="settings_wireless_connect_on_bt_hint">手机蓝牙连上车机（上车时手机会自动连车机蓝牙），或者打开 OpenHC 时，车机自动去连用无线连成功过的手机，不用扫码。手机热点关着时手机上不用点；开着时手机会问一次要不要关热点。要有悬浮窗权限，比亚迪车机还要在「选择禁止后台启动项」里放行 OpenHC（见下面）。新手机先点「开始无线连接」扫码连一次。</string>
+    <string name="settings_wireless_connect_on_bt_hint">手机蓝牙连上车机（上车时手机会自动连车机蓝牙），或者打开 OpenHC 时，车机自动去连用无线连成功过的手机，不用扫码。手机热点关着时手机上不用点；开着时手机会问一次要不要关热点。要有悬浮窗权限，比亚迪车机还要在「选择禁止后台启动项」里放行 OpenHC（见下面）。新手机先点「开始无线连接」扫码连一次。改完立即生效。</string>
     <string name="settings_wireless_debug">无线调试（BLE 广播，下次开始等待时生效）</string>
     <string name="settings_wireless_republish">每隔多久换序列号重新发布</string>
     <string name="settings_wireless_republish_off">不重发</string>

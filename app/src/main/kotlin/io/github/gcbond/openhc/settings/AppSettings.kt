@@ -5,7 +5,7 @@ import androidx.core.content.edit
 import io.github.gcbond.openhc.connection.DisplayPlan
 
 /**
- * 应用设置（SharedPreferences）。改动在下一次连接时生效。任意线程可读写。
+ * 应用设置（SharedPreferences）。连接相关的几项在下一次连接开始时读。任意线程可读写。
  */
 class AppSettings(context: Context) {
     private val prefs = context.applicationContext.getSharedPreferences(FILE, Context.MODE_PRIVATE)

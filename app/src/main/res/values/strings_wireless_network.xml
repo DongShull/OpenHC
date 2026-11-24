@@ -4,7 +4,7 @@
 
     <!-- 设置页 -->
     <string name="settings_wireless_restore">退出后恢复车机 WiFi（默认关）</string>
-    <string name="settings_wireless_restore_hint">无线连接结束、热点关掉以后，如果车机 WiFi 是因为开热点才断开的，就把它打开。安卓 10 起应用不能自己打开 WiFi：车机 WiFi 没有自己恢复时，首页顶上会提示你去系统里打开。</string>
+    <string name="settings_wireless_restore_hint">无线连接结束、热点关掉以后，如果车机 WiFi 是因为开热点才断开的，就把它打开。安卓 10 起应用不能自己打开 WiFi：车机 WiFi 没有自己恢复时，首页顶上会提示你去系统里打开。改完立即生效，正在进行的这次连接结束时也按新设置办。</string>
 
     <!-- 设置页：无线方式 -->
     <string name="settings_wireless_mode">无线方式</string>
@@ -43,7 +43,7 @@
     <string name="wireless_restore_unavailable">这台车机打不开系统的 WiFi 页面，请在车机设置里手动打开 WiFi。</string>
     <!-- 连接时暂停车机 WiFi 扫描（经车机本机的网络 ADB，可选、默认关） -->
     <string name="settings_scan_pause">直连时暂停车机 WiFi 扫描</string>
-    <string name="settings_scan_pause_hint">试验功能。车机 WiFi 开着却没连网络时，系统会定时扫描找网络，扫描时画面和声音可能顿一下。打开后，「5 GHz 直连」投屏期间，OpenHC 通过车机本机的网络 ADB 暂停系统自动找网络；连接结束、出错或下次打开应用时恢复。
+    <string name="settings_scan_pause_hint">试验功能。车机 WiFi 开着却没连网络时，系统会定时扫描找网络，扫描时画面和声音可能顿一下。打开后，「5 GHz 直连」投屏期间，OpenHC 通过车机本机的网络 ADB 暂停系统自动找网络；连接结束、出错或下次打开应用时恢复。打开后从下一次直连投屏起生效，关掉马上恢复。
 
 要先在车机的开发者选项里打开网络 ADB（OpenHC 不会替你打开）。打开这个开关时，车机会弹框请求授权，请点「允许」。
 
