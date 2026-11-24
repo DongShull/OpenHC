@@ -99,6 +99,13 @@ class LocalHotspotOwner private constructor(context: Context) {
     /** 系统给的热点（安卓 8.0 起才有这个类型，老系统上一直是 null）。 */
     private var reservation: Any? = null
 
+    /**
+     * 不再用的热点对象，一直留着、不让它被回收。系统回收它时会再调一次关闭，而关闭停的是本进程**当前**的热点申请，
+     * 不管当初是哪一次给的：上一次连接的热点对象被回收，就把下一次连接刚开好的热点关掉，车机这边的连接全被掐断
+     * （读写报「Software caused connection abort」）。每次连接最多多留一个，进程退出时一起释放。
+     */
+    private val retired = ArrayList<Any>()
+
     /** 最近一次申请前的网卡快照：网卡名 → IPv4。 */
     private var before: Map<String, Set<String>> = emptyMap()
 
@@ -389,16 +396,17 @@ class LocalHotspotOwner private constructor(context: Context) {
             drive { machine.onFailed(now()) }
             return
         }
-        // 系统按进程只给一个热点；万一手里还有旧的，先关掉。
+        // 系统按进程只给一个热点；万一手里还有旧的，只留着不关：这时再关它，停掉的是刚开好的这个（见 [retired]）。
         val old = reservation
-        if (old != null && old !== held) closeQuietly(old)
+        if (old != null && old !== held) retire(old)
         reservation = held
         drive { machine.onStarted(now()) }
     }
 
-    /** 系统回话：热点被收回了。系统已经收回，手里的这个不用再关。 */
+    /** 系统回话：热点被收回了。系统已经收回，手里的这个不用再关，但要留着（见 [retired]）。 */
     private fun onSystemStopped() {
         note("系统回话：热点被收回了")
+        reservation?.let { retire(it) }
         reservation = null
         drive { machine.onStopped(now()) }
     }
@@ -414,6 +422,12 @@ class LocalHotspotOwner private constructor(context: Context) {
         val held = reservation ?: return
         reservation = null
         closeQuietly(held)
+        retire(held)
+    }
+
+    /** 不再用的热点对象留到进程结束（原因见 [retired]）。只在工作线程上调用。 */
+    private fun retire(held: Any) {
+        if (retired.none { it === held }) retired += held
     }
 
     private fun closeQuietly(held: Any) {
