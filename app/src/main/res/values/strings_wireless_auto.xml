@@ -13,24 +13,23 @@
 
     <!-- 只用数据线连接 -->
     <string name="wireless_notice_wired_only">「只用数据线连接」开着，无线已关闭。要用无线，先在「设置」里关掉它。</string>
-    <string name="wireless_action_open_settings">去设置</string>
 
     <!-- 自动回连没在等的原因（无线页空闲时显示） -->
     <string name="wireless_auto_hold_wired_only">「只用数据线连接」开着：不自动连接手机。</string>
-    <string name="wireless_auto_hold_paused">已停止。手机蓝牙重新连上车机时会再自动连接；现在要连，点「开始无线连接」扫码。</string>
+    <string name="wireless_auto_hold_paused">已停止。手机蓝牙重新连上车机时会再自动连接；现在要连，点「开始连接」扫码。</string>
     <string name="wireless_auto_hold_wired">有线连接在进行。</string>
     <string name="wireless_auto_hold_hotspot_unsupported">这台车机是安卓 8.0 以下，没有本地热点，用不了无线连接（插线照常可用）。</string>
     <string name="wireless_auto_hold_identity">安装包不完整，用不了无线连接。</string>
-    <string name="wireless_auto_hold_no_phone">还没有配对过的手机：点「开始无线连接」扫码配对一次。</string>
+    <string name="wireless_auto_hold_no_phone">还没有配对过的手机：点「开始连接」扫码配对一次。</string>
     <string name="wireless_auto_hold_bt_off">车机蓝牙关着：打开后，手机蓝牙连上车机时会自动连接。</string>
-    <string name="wireless_auto_hold_permissions">自动连接手机缺权限：点「开始无线连接」授权。</string>
+    <string name="wireless_auto_hold_permissions">自动连接手机缺权限：点「开始连接」授权。</string>
     <string name="wireless_auto_hold_unsupported">这台车机不支持 BLE 广播：配对过的手机不能自动连上，只能扫码。</string>
     <string name="wireless_auto_hold_address">读不到车机蓝牙地址，不能自动连接手机。请在「设置」里填写。</string>
     <string name="wireless_auto_hold_foreground">应用在后台时系统不让开始连接，回到本应用时再连。</string>
     <string name="wireless_auto_hold_failed">这次没能开始连接（原因见日志）。</string>
     <string name="wireless_auto_hold_ready">上车手机蓝牙连上车机、或打开 OpenHC 时，会自动连用无线连过的手机。</string>
-    <string name="wireless_auto_hold_no_known">还没有用无线连过的手机：点「开始无线连接」扫码连一次，以后上车就会自动连上。</string>
-    <string name="wireless_auto_hold_overlay">自动连接还差悬浮窗权限：去「设置 → 启动」里打开。</string>
+    <string name="wireless_auto_hold_no_known">还没有用无线连过的手机：点「开始连接」扫码连一次，以后上车就会自动连上。</string>
+    <string name="wireless_auto_hold_overlay">自动连接还差悬浮窗权限，在「设置 → 启动」里打开。</string>
     <string name="wireless_auto_hold_ui_not_shown">手机蓝牙连上了，但没能自动打开 OpenHC（多半缺悬浮窗权限，或被车机系统拦了），这次没有连。</string>
 
     <!-- 设置页 -->

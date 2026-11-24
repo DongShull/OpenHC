@@ -4,7 +4,7 @@
     <string name="settings_boot_title">启动</string>
     <string name="settings_boot">开机自动打开 OpenHC</string>
     <string name="settings_boot_hint">车机开机、或熄火后再点火时自动打开 OpenHC。有的车机还要在系统里允许自启动，打开后按下面的提示设置。下次开机或点火时生效。</string>
-    <string name="settings_boot_wired">打开后进入等插线，跟你手动打开再点「开始」一样。</string>
+    <string name="settings_boot_wired">开机打开 OpenHC 后等插线，插上手机就连接。</string>
     <string name="settings_boot_wireless_both">开着「插线时不再弹窗」：开机后打开 OpenHC，自动连上次用无线连过的手机（手机蓝牙要连着车机）；插上手机（或开机时已经插着）就改走有线。</string>
     <string name="settings_boot_wireless_blocked">没开「插线时不再弹窗」：开机后进入等插线；用无线连过的手机蓝牙连上车机时，改走无线自动连接。</string>
     <string name="settings_boot_overlay_granted">悬浮窗权限：已允许</string>
@@ -35,7 +35,7 @@
     <string name="settings_boot_silent">开机静默连接</string>
     <string name="settings_boot_silent_hint">开机打开 OpenHC 时不显示首页，在后台等手机，连上了才显示投屏画面。等插线时通知栏有一条常驻通知。下次开机或点火时生效。</string>
     <string name="settings_boot_silent_needs_boot">要先打开上面的「开机自动打开 OpenHC」。</string>
-    <string name="settings_boot_silent_needs_vpn">有线还没同意过 VPN 授权：在首页点一次「开始」并同意，之后开机才能在后台等插线；在那之前开机照常打开首页。</string>
+    <string name="settings_boot_silent_needs_vpn">有线还没同意过 VPN 授权：先插上手机连一次有线，在弹框里同意，之后开机才能在后台等插线；在那之前开机照常打开首页。</string>
     <string name="settings_boot_silent_needs_notifications">没有通知权限：后台等待时看不到常驻通知。点这里去开。</string>
     <string name="settings_boot_silent_wired">开机后不打开首页，在后台等插线；手机连上开始投屏时才把投屏画面带到前台（首次配对要输连接码时也会露出来）。</string>
     <string name="settings_boot_silent_wireless_both">开机后不打开首页，在后台待命：用无线连过的手机蓝牙连上车机时，打开 OpenHC 自动连接；插上手机（或开机时已经插着）就改走有线。</string>

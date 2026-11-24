@@ -34,7 +34,7 @@
     <string name="phase_replug">请拔线后重插</string>
 
     <!-- 阶段说明 -->
-    <string name="hint_idle">点「开始」，然后用数据线把华为手机插到车机的 USB 口。</string>
+    <string name="hint_idle">用数据线把华为手机插到车机的 USB 口就会连接。</string>
     <string name="hint_preparing">正在读取配置、准备监听…</string>
     <string name="hint_waiting_for_phone">用数据线把华为手机插到车机的 USB 口。手机保持解锁，并关闭 USB 调试。</string>
     <string name="hint_usb_debugging">手机开着 USB 调试时不响应车机。请在手机的「开发人员选项」里关闭「USB 调试」，关闭后会自动继续。</string>

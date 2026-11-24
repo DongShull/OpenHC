@@ -167,16 +167,21 @@ internal fun CardBox(
 
 /** 卡片左上角的图标：浅蓝方块里一个线条图标。 */
 @Composable
-internal fun IconTile(glyph: ImageVector, modifier: Modifier = Modifier) {
+internal fun IconTile(glyph: ImageVector, modifier: Modifier = Modifier, large: Boolean = false) {
     val compact = LocalCompact.current
+    val tile = when {
+        large && !compact -> 72.dp
+        large || !compact -> 56.dp
+        else -> 44.dp
+    }
     Box(
         modifier
-            .size(if (compact) 44.dp else 56.dp)
-            .clip(RoundedCornerShape(16.dp))
+            .size(tile)
+            .clip(RoundedCornerShape(if (large) 20.dp else 16.dp))
             .background(Palette.Tint),
         contentAlignment = Alignment.Center,
     ) {
-        Icon(glyph, contentDescription = null, tint = Palette.Accent, modifier = Modifier.size(if (compact) 24.dp else 30.dp))
+        Icon(glyph, contentDescription = null, tint = Palette.Accent, modifier = Modifier.size(tile * 0.54f))
     }
 }
 
@@ -222,11 +227,12 @@ internal fun PillButton(
     modifier: Modifier = Modifier,
     primary: Boolean = true,
     enabled: Boolean = true,
+    wide: Boolean = false,
 ) {
     val compact = LocalCompact.current
     Box(
         modifier
-            .widthIn(min = if (compact) 140.dp else 180.dp)
+            .widthIn(min = if (wide) (if (compact) 240.dp else 320.dp) else if (compact) 140.dp else 180.dp)
             .heightIn(min = if (compact) 46.dp else 56.dp)
             .alpha(if (enabled) 1f else DISABLED_ALPHA)
             .clip(RoundedCornerShape(16.dp))

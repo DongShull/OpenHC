@@ -30,7 +30,7 @@ import io.github.gcbond.openhc.settings.WirelessPreferences
 import io.github.gcbond.openhc.wireless.WirelessUiState
 
 // 无线连接里 WiFi 那一段（车机开热点）：设置页「连接方式」组里的「退出后恢复车机 WiFi」、
-// 首页无线卡片上的一行说明，以及首页顶上的提示卡片。
+// 首页卡片上的一行说明，以及首页顶上的提示卡片。
 
 /** 「连接方式」组里的一行：退出后恢复车机 WiFi（默认关）。连接结束时读。 */
 @Composable
@@ -50,15 +50,22 @@ internal fun RestoreWifiSetting() {
 }
 
 /**
- * 无线连接怎么给手机准备 WiFi 的一句说明：车机开热点（车机原来连着的 WiFi 会断开），或者 WiFi 直连（试验）。
- * 连接进行中按这次连接用的方式；空闲时按设置（设置页和首页不同时显示，回到首页时重新组合，读到的是新值）。
+ * 无线连接怎么给手机准备 WiFi 的一句说明：车机开热点（车机原来连着的 WiFi 会断开）、5 GHz 直连，或者车机自带热点。
+ * 直连按这次连接实际用的（进行中）或设置（空闲时）；车机自带热点按设置（设置页和首页不同时显示，回到首页时重新组合，
+ * 读到的是新值）。
  */
 @Composable
 internal fun wirelessNetworkText(state: WirelessUiState): String {
     val context = LocalContext.current
     val prefs = remember(context) { WirelessPreferences(context) }
     val direct = if (state.active) state.direct else prefs.usesWifiDirect
-    return stringResource(if (direct) R.string.wireless_network_line_direct else R.string.wireless_network_line)
+    return stringResource(
+        when {
+            direct -> R.string.wireless_network_line_direct
+            prefs.carHotspot -> R.string.wireless_network_line_car
+            else -> R.string.wireless_network_line
+        },
+    )
 }
 
 /**

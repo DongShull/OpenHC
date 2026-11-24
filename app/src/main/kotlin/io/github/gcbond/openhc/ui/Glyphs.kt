@@ -32,6 +32,7 @@ internal object Glyphs {
     val Wifi by lazy {
         stroke("wifi", "M2 8.8a15 15 0 0 1 20 0 M5 12.4a10.5 10.5 0 0 1 14 0 M8.5 15.9a5.5 5.5 0 0 1 7 0 M12 19.5h0.01")
     }
+    val Phone by lazy { stroke("phone", "M8 2h8a2 2 0 0 1 2 2v16a2 2 0 0 1-2 2H8a2 2 0 0 1-2-2V4a2 2 0 0 1 2-2z M11 18h2") }
     val Plug by lazy { stroke("plug", "M9 2v4 M15 2v4 M7 6h10v5a5 5 0 0 1-10 0z M12 16v6") }
     val Alert by lazy { stroke("alert", "M12 3l10 18H2z M12 10v5 M12 18h0.01") }
     val Monitor by lazy { stroke("monitor", "M3 4h18v13H3z M8 21h8 M12 17v4") }

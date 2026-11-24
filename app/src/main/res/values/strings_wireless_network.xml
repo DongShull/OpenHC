@@ -22,6 +22,7 @@
 
     <!-- 首页无线卡片 -->
     <string name="wireless_network_line">方式：车机开热点（车机原来连的 WiFi 会断开）</string>
+    <string name="wireless_network_line_car">方式：车机自带热点（车机热点要开着）</string>
     <string name="wireless_network_line_direct">方式：5 GHz 直连（车机 WiFi 要开着）</string>
     <string name="wireless_hint_negotiating_hotspot">认证成功，车机正在开热点，和手机商量 WiFi…</string>
     <string name="wireless_hint_sending_hotspot">车机热点已打开，正在把热点信息发给手机…</string>
@@ -44,13 +45,7 @@
     <!-- 连接时暂停车机 WiFi 扫描（经车机本机的网络 ADB，可选、默认关） -->
     <string name="settings_scan_pause">直连时暂停车机 WiFi 扫描</string>
     <string name="settings_scan_pause_hint">试验功能。直连投屏时暂停车机自己找 WiFi（找的时候画面和声音可能顿一下），连接结束后恢复。要先在车机的开发者选项里打开网络 ADB，打开开关时会说明风险。语音助手、定位这类应用自己发起的扫描停不了。打开后从下一次直连投屏起生效，关掉马上恢复。</string>
-    <string name="settings_scan_pause_confirm_text">试验功能。车机 WiFi 开着却没连网络时，系统会定时扫描找网络，扫描时画面和声音可能顿一下。打开后，「5 GHz 直连」投屏期间，OpenHC 通过车机本机的网络 ADB 暂停系统自动找网络；连接结束、出错或下次打开应用时恢复。打开后从下一次直连投屏起生效，关掉马上恢复。
-
-要先在车机的开发者选项里打开网络 ADB（OpenHC 不会替你打开）。打开这个开关时，车机会弹框请求授权，请点「允许」。
-
-风险：网络 ADB 开着时，同一网络里的设备经车机上点允许后也能连上车机。不用这个功能时，请在车机上关掉网络 ADB。
-
-语音助手、定位等应用自己发起的扫描停不了。</string>
+    <string name="settings_scan_pause_confirm_text">试验功能。车机 WiFi 开着却没连网络时，系统会定时扫描找网络，扫描时画面和声音可能顿一下。打开后，「5 GHz 直连」投屏期间，OpenHC 通过车机本机的网络 ADB 暂停系统自动找网络；连接结束、出错或下次打开应用时恢复。打开后从下一次直连投屏起生效，关掉马上恢复。\n\n要先在车机的开发者选项里打开网络 ADB（OpenHC 不会替你打开）。打开这个开关时，车机会弹框请求授权，请点「允许」。\n\n风险：网络 ADB 开着时，同一网络里的设备经车机上点允许后也能连上车机。不用这个功能时，请在车机上关掉网络 ADB。\n\n语音助手、定位等应用自己发起的扫描停不了。</string>
     <string name="settings_scan_pause_cancel">取消</string>
     <string name="settings_scan_pause_confirm">打开</string>
     <string name="settings_scan_pause_checking">正在连车机的网络 ADB……车机弹出「允许调试吗」时请点「允许」（可以勾选一律允许）。</string>
