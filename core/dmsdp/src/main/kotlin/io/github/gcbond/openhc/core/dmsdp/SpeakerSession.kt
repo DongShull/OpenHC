@@ -485,6 +485,14 @@ internal class SpeakerSession(
             note(null, "${phone}（HiCar ${phone.version ?: "版本未知"}）记着要用 UDP，数据会话用 UDP")
             return AudioTransport.UDP
         }
+        val major = phone?.version?.substringBefore('.')?.toIntOrNull()
+        if (major != null && major < TCP_MIN_HICAR_MAJOR) {
+            // HiCar 14 及更早的手机（老鸿蒙、荣耀等）不走 TCP 方式的声音连接：有的不应答，有的应答了却把声音塞进控制连接、
+            // 几路不带路号；用 UDP 时它们正常连数据连接、按路号分开送。直接从 UDP 开始，省掉第一次连接试 TCP 的那一段。
+            udpFallback = true
+            note(null, "${phone}（HiCar ${phone.version}）早于 $TCP_MIN_HICAR_MAJOR，数据会话直接用 UDP")
+            return AudioTransport.UDP
+        }
         return AudioTransport.TCP
     }
 
@@ -623,6 +631,9 @@ internal class SpeakerSession(
 
         /** 用 200 应答 SETUP 之后，过了这么久还没连数据端口，算一次「应答了却不连」。 */
         const val ACCEPTED_NO_CONNECT_MILLIS = 5_000L
+
+        /** 声音数据连接先试 TCP 的最低 HiCar 主版本；更早的手机直接用 UDP。 */
+        const val TCP_MIN_HICAR_MAJOR = 15
 
         /** 同一次连接里「应答了却不连」出现这么多次，就改用 UDP。 */
         const val ACCEPTED_NO_CONNECT_SESSIONS = 2

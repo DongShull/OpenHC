@@ -464,10 +464,15 @@ class SpeakerSessionTest {
             return session.feed(DmsdpChannel.CONTROL, trigger("OPTIONS"), 1_000)
                 .filterIsInstance<DmsdpAction.OpenAudioListeners>().single().transport
         }
-        assertEquals(AudioTransport.UDP, firstTransport(setOf("$key@9.1.0.100"), "9.1.0.100"))
-        assertEquals(AudioTransport.TCP, firstTransport(setOf("$key@9.1.0.100"), "9.2.0.100"), "升级后重新试 TCP")
-        assertEquals(AudioTransport.UDP, firstTransport(setOf(key), "9.2.0.100"), "旧条目不分版本")
-        assertEquals(AudioTransport.TCP, firstTransport(setOf("${key}0@9.1.0.100"), "9.1.0.100"), "别的手机的条目不算")
+        assertEquals(AudioTransport.UDP, firstTransport(setOf("$key@19.1.0.100"), "19.1.0.100"))
+        assertEquals(AudioTransport.TCP, firstTransport(setOf("$key@19.1.0.100"), "19.2.0.100"), "升级后重新试 TCP")
+        assertEquals(AudioTransport.UDP, firstTransport(setOf(key), "19.2.0.100"), "旧条目不分版本")
+        // 不在名单里时按 HiCar 主版本：15 起先试 TCP，更早的直接 UDP；版本不知道或认不出时先试 TCP。
+        assertEquals(AudioTransport.UDP, firstTransport(emptySet(), "14.2.0.300"))
+        assertEquals(AudioTransport.TCP, firstTransport(emptySet(), "15.0.0.100"))
+        assertEquals(AudioTransport.TCP, firstTransport(emptySet(), null))
+        assertEquals(AudioTransport.TCP, firstTransport(emptySet(), "x.1"))
+        assertEquals(AudioTransport.TCP, firstTransport(setOf("${key}0@19.1.0.100"), "19.1.0.100"), "别的手机的条目不算")
 
         val ref = PhoneRef(key, null, "9.1.0.100")
         assertEquals("$key@9.1.0.100", ref.listEntry)
