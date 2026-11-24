@@ -59,6 +59,7 @@ import io.github.gcbond.openhc.startup.BootStart
 import io.github.gcbond.openhc.startup.BootStartPolicy
 import io.github.gcbond.openhc.trust.FileTrustStore
 import io.github.gcbond.openhc.trust.TrustStoreCorruptException
+import io.github.gcbond.openhc.wifi.ScanPause
 import java.io.File
 import java.io.IOException
 import java.security.SecureRandom
@@ -126,6 +127,9 @@ class WirelessController(
     }
 
     private val app: Context = context.applicationContext ?: context
+
+    /** 「连接时暂停车机 WiFi 扫描」；单元测试里没有应用对象时为 null。 */
+    private val scanPause: ScanPause? get() = (app as? OpenHcApp)?.scanPause
     private val settings = AppSettings(app)
     private val worker = HandlerThread("OpenHC-Wireless").also { it.start() }
     private val handler = Handler(worker.looper)
@@ -448,6 +452,8 @@ class WirelessController(
     ) {
         if (attempt != null) return
         userStopped = false
+        // 熄火不一定结束进程：之前暂停的车机 WiFi 扫描没恢复成的，每次开始无线连接时补一次。
+        scanPause?.recover("开始无线连接")
         if (wirelessPrefs.wiredOnly) return blocked(kind, WirelessNotice.WiredOnly, AutoHold.WIRED_ONLY)
         if (wiredActive()) return blocked(kind, WirelessNotice.WiredActive, AutoHold.WIRED_ACTIVE)
         // 本地热点安卓 8.0 起才有，更早的车机用不了无线。不要求车机 WiFi 开着：开热点时单射频车机自己的 WiFi 本来就会断。
@@ -1074,6 +1080,8 @@ class WirelessController(
             // 投屏开始了才算连成功：记下这台手机，之后「自动连接手机」就会拨它。
             is SessionEvent.VideoStarted -> {
                 current.projected = true
+                // 直连投屏期间车机 WiFi 没连网络、系统会定时扫描：设置打开时暂停（见 [ScanPause]）。
+                if (current.directGroup) scanPause?.sessionStarted(current.id)
                 current.phoneAddress?.let { address ->
                     if (wirelessPrefs.rememberPhone(address)) Log.i(TAG, "记下连成功的手机（${MacText.mask(address)}），之后会自动连它")
                 }
@@ -1170,6 +1178,7 @@ class WirelessController(
     private fun maybeFinish(current: Attempt) {
         if (current.finished || !current.tearingDown || !current.runner.isTerminated) return
         current.finished = true
+        scanPause?.sessionEnded(current.id)
         // 兜底：广播、GATT、定时一样不留。
         current.beacon?.stop("兜底")
         if (current.beacon?.isClean == false) Log.e(TAG, "[${current.id}] 广播资源没有收干净")

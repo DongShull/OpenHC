@@ -137,7 +137,9 @@ internal fun WirelessModeSetting(state: WirelessSettingsState) {
         },
     ) { state.changeWirelessMode(it) }
     if (state.carHotspot) CarHotspotFields(state)
+    if (state.wifiDirect) ScanPauseSetting()
 }
+
 
 /** 车机自带热点的名称、密码（输入即保存，密码显示成圆点）和频段。 */
 @Composable
