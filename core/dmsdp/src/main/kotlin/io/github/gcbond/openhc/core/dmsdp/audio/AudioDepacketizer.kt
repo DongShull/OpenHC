@@ -54,10 +54,10 @@ internal class AudioDepacketizer(
 
     /** 去掉过 12 字节头的 PCM 包数、带不上头（原样交出）的 PCM 包数。 */
     var pcmHeadersStripped = 0L
-    private var pcmTrailerNoted = false
         private set
     var pcmWithoutHeader = 0L
         private set
+    private var pcmTrailerNoted = false
 
     /** 去掉过 12 字节头的 AAC 包数。 */
     var aacHeadersStripped = 0L
