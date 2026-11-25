@@ -6,12 +6,12 @@ import kotlin.test.assertFalse
 import kotlin.test.assertTrue
 
 class ScanPauseTest {
-    private class FakeJournal : ScanPauseJournal {
+    private class FakeJournal : PendingJournal {
         override var pending = false
     }
 
     /** 立即执行；延时任务存起来，测试里手动触发。 */
-    private class FakeWorker : ScanPauseWorker {
+    private class FakeWorker : AdbWorker {
         val delayed = ArrayList<() -> Unit>()
         override fun execute(task: () -> Unit) = task()
         override fun schedule(delayMillis: Long, task: () -> Unit): () -> Unit {
@@ -30,7 +30,7 @@ class ScanPauseTest {
     private val worker = FakeWorker()
     private val calls = ArrayList<String>()
     private var enabled = true
-    private var results = ArrayDeque<ScanSwitchResult>()
+    private var results = ArrayDeque<AdbSwitchResult>()
 
     /** 每次跑记下命令和是否请求授权，结果按 [results] 依次给，用完了都给 DONE。 */
     private val pause = ScanPause(
@@ -38,7 +38,7 @@ class ScanPauseTest {
             // 暂停前记号必须已经落盘。
             if (command == ScanSwitchMain.PAUSE) assertTrue(journal.pending, "暂停前先记下待恢复")
             calls += if (ask) "$command+ask" else command
-            results.removeFirstOrNull() ?: ScanSwitchResult.DONE
+            results.removeFirstOrNull() ?: AdbSwitchResult.DONE
         },
         journal = journal,
         enabled = { enabled },
@@ -69,7 +69,7 @@ class ScanPauseTest {
 
     @Test
     fun aFailedPauseChangedNothingSoThereIsNothingToRestore() {
-        for (result in listOf(ScanSwitchResult.ADB_OFF, ScanSwitchResult.NOT_APPROVED, ScanSwitchResult.UNSUPPORTED)) {
+        for (result in listOf(AdbSwitchResult.ADB_OFF, AdbSwitchResult.NOT_APPROVED, AdbSwitchResult.UNSUPPORTED)) {
             calls.clear()
             results.addLast(result)
             pause.sessionStarted(1)
@@ -81,7 +81,7 @@ class ScanPauseTest {
 
     @Test
     fun anUnclearPauseIsRestoredAnyway() {
-        results.addLast(ScanSwitchResult.FAILED)
+        results.addLast(AdbSwitchResult.FAILED)
         pause.sessionStarted(1)
         assertTrue(journal.pending)
         pause.sessionEnded(1)
@@ -92,7 +92,7 @@ class ScanPauseTest {
     @Test
     fun aFailedPauseKeepsAnEarlierPendingRestore() {
         journal.pending = true
-        results.addLast(ScanSwitchResult.ADB_OFF)
+        results.addLast(AdbSwitchResult.ADB_OFF)
         pause.sessionStarted(1)
         assertTrue(journal.pending, "之前暂停过还没恢复，这次没连上 ADB 也不能丢掉记号")
     }
@@ -100,8 +100,8 @@ class ScanPauseTest {
     @Test
     fun restoreRetriesUntilItWorksThenStops() {
         pause.sessionStarted(1)
-        results.addLast(ScanSwitchResult.ADB_OFF)
-        results.addLast(ScanSwitchResult.FAILED)
+        results.addLast(AdbSwitchResult.ADB_OFF)
+        results.addLast(AdbSwitchResult.FAILED)
         pause.sessionEnded(1)
         assertTrue(journal.pending)
         assertEquals(1, worker.delayed.size)
@@ -116,7 +116,7 @@ class ScanPauseTest {
     @Test
     fun restoreGivesUpAfterTheLimitButKeepsTheMark() {
         pause.sessionStarted(1)
-        repeat(ScanPause.RETRY_LIMIT + 1) { results.addLast(ScanSwitchResult.ADB_OFF) }
+        repeat(ScanPause.RETRY_LIMIT + 1) { results.addLast(AdbSwitchResult.ADB_OFF) }
         pause.sessionEnded(1)
         repeat(ScanPause.RETRY_LIMIT) { worker.runDelayed() }
         assertTrue(worker.delayed.isEmpty())
@@ -129,7 +129,7 @@ class ScanPauseTest {
     @Test
     fun aNewSessionCancelsPendingRetries() {
         pause.sessionStarted(1)
-        results.addLast(ScanSwitchResult.ADB_OFF)
+        results.addLast(AdbSwitchResult.ADB_OFF)
         pause.sessionEnded(1)
         assertEquals(1, worker.delayed.size)
         pause.sessionStarted(2)
@@ -162,7 +162,7 @@ class ScanPauseTest {
     @Test
     fun unsupportedRestoreIsNotRetried() {
         journal.pending = true
-        results.addLast(ScanSwitchResult.DENIED)
+        results.addLast(AdbSwitchResult.DENIED)
         pause.recover("测试")
         assertFalse(journal.pending)
         assertTrue(worker.delayed.isEmpty())
@@ -178,11 +178,11 @@ class ScanPauseTest {
 
     @Test
     fun checkAsksForApprovalAndChangesNothing() {
-        results.addLast(ScanSwitchResult.READY)
+        results.addLast(AdbSwitchResult.READY)
         pause.check()
         assertEquals(listOf("check+ask"), calls)
         assertFalse(journal.pending)
-        assertEquals(ScanSwitchResult.READY, pause.status.value.last)
+        assertEquals(AdbSwitchResult.READY, pause.status.value.last)
     }
 
     @Test
@@ -193,10 +193,10 @@ class ScanPauseTest {
         )
         assertEquals("CLASSPATH='/a'\\''b' app_process /system/bin ${ScanSwitchCommand.MAIN_CLASS} check", ScanSwitchCommand.line("/a'b", "check"))
         assertEquals(ScanSwitchMain::class.java.name, ScanSwitchCommand.MAIN_CLASS)
-        assertEquals(ScanSwitchResult.DONE, ScanSwitchCommand.parse("noise\nOPENHC_SCAN_SWITCH|DONE|enableWifiConnectivityManager\n"))
-        assertEquals(ScanSwitchResult.READY, ScanSwitchCommand.parse("OPENHC_SCAN_SWITCH|READY|allowAutojoinGlobal\r\n"))
-        assertEquals(ScanSwitchResult.UNSUPPORTED, ScanSwitchCommand.parse("OPENHC_SCAN_SWITCH|UNSUPPORTED|-"))
-        assertEquals(ScanSwitchResult.FAILED, ScanSwitchCommand.parse("Killed"))
-        assertEquals(ScanSwitchResult.FAILED, ScanSwitchCommand.parse("OPENHC_SCAN_SWITCH|WHAT|-"))
+        assertEquals(AdbSwitchResult.DONE, ScanSwitchCommand.parse("noise\nOPENHC_SCAN_SWITCH|DONE|enableWifiConnectivityManager\n"))
+        assertEquals(AdbSwitchResult.READY, ScanSwitchCommand.parse("OPENHC_SCAN_SWITCH|READY|allowAutojoinGlobal\r\n"))
+        assertEquals(AdbSwitchResult.UNSUPPORTED, ScanSwitchCommand.parse("OPENHC_SCAN_SWITCH|UNSUPPORTED|-"))
+        assertEquals(AdbSwitchResult.FAILED, ScanSwitchCommand.parse("Killed"))
+        assertEquals(AdbSwitchResult.FAILED, ScanSwitchCommand.parse("OPENHC_SCAN_SWITCH|WHAT|-"))
     }
 }

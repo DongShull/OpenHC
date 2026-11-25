@@ -1,6 +1,12 @@
 package io.github.gcbond.openhc.ui
 
+import androidx.compose.animation.AnimatedContent
+import androidx.compose.animation.SizeTransform
 import androidx.compose.animation.core.animateDpAsState
+import androidx.compose.animation.core.tween
+import androidx.compose.animation.fadeIn
+import androidx.compose.animation.fadeOut
+import androidx.compose.animation.togetherWith
 import androidx.compose.foundation.background
 import androidx.compose.foundation.border
 import androidx.compose.foundation.clickable
@@ -23,6 +29,8 @@ import androidx.compose.foundation.layout.size
 import androidx.compose.foundation.layout.width
 import androidx.compose.foundation.layout.widthIn
 import androidx.compose.foundation.rememberScrollState
+import androidx.compose.foundation.relocation.BringIntoViewRequester
+import androidx.compose.foundation.relocation.bringIntoViewRequester
 import androidx.compose.foundation.selection.selectable
 import androidx.compose.foundation.selection.selectableGroup
 import androidx.compose.foundation.selection.toggleable
@@ -32,9 +40,12 @@ import androidx.compose.foundation.verticalScroll
 import androidx.compose.material3.Icon
 import androidx.compose.material3.Text
 import androidx.compose.runtime.Composable
+import androidx.compose.runtime.LaunchedEffect
 import androidx.compose.runtime.compositionLocalOf
 import androidx.compose.runtime.getValue
+import androidx.compose.runtime.mutableIntStateOf
 import androidx.compose.runtime.mutableStateOf
+import androidx.compose.runtime.remember
 import androidx.compose.runtime.saveable.rememberSaveable
 import androidx.compose.runtime.setValue
 import androidx.compose.ui.Alignment
@@ -43,10 +54,13 @@ import androidx.compose.ui.draw.alpha
 import androidx.compose.ui.draw.clip
 import androidx.compose.ui.draw.drawBehind
 import androidx.compose.ui.geometry.Offset
+import androidx.compose.ui.geometry.Rect
 import androidx.compose.ui.geometry.Size
 import androidx.compose.ui.graphics.Color
+import androidx.compose.ui.graphics.Path
 import androidx.compose.ui.graphics.vector.ImageVector
 import androidx.compose.ui.layout.layout
+import androidx.compose.ui.layout.onSizeChanged
 import androidx.compose.ui.platform.LocalDensity
 import androidx.compose.ui.res.stringResource
 import androidx.compose.ui.semantics.Role
@@ -59,12 +73,14 @@ import androidx.compose.ui.text.style.TextAlign
 import androidx.compose.ui.text.style.TextOverflow
 import androidx.compose.ui.unit.Dp
 import androidx.compose.ui.unit.IntOffset
+import androidx.compose.ui.unit.IntSize
 import androidx.compose.ui.unit.dp
 import androidx.compose.ui.unit.em
 import androidx.compose.ui.unit.sp
 import androidx.compose.ui.window.Dialog
 import androidx.compose.ui.window.DialogProperties
 import io.github.gcbond.openhc.R
+import kotlinx.coroutines.delay
 
 // 首页和设置页共用的控件。全部自己画（不用系统开关、单选框），深浅两套配色下样子才可控。
 
@@ -467,6 +483,10 @@ internal class CardOption(val title: String, val text: String, val tag: String? 
 /**
  * 组里的一行大选项：名称、一句话，下面几张并排的选项卡片，每张写名称和适合什么情况（文字长、分段放不下时用）。
  * 窄屏时卡片竖着排。
+ *
+ * 选中的选项有自己的设置时（[detail] 对它返回内容），卡片下面接一块和选中卡片同色的面板，顶上一个小尖角指着选中的卡片，
+ * 表明这些设置属于它；换选项时面板淡入淡出、高度跟着平滑变化，展开完把整块面板滚进可见范围（刚打开页面时不滚）。
+ * 面板里放 [DetailNote] 和普通的行（[SwitchRow] 等），行间分隔线照常画，第一条裁掉。
  */
 @Composable
 internal fun CardChoiceRow(
@@ -476,6 +496,7 @@ internal fun CardChoiceRow(
     description: String? = null,
     note: String? = null,
     summary: String? = null,
+    detail: (Int) -> (@Composable ColumnScope.() -> Unit)? = { null },
     onSelect: (Int) -> Unit,
 ) {
     val compact = LocalCompact.current
@@ -486,21 +507,55 @@ internal fun CardChoiceRow(
             .rowPadding(compact),
     ) {
         val across = maxWidth >= CARD_CHOICE_ACROSS_MIN
+        val gap = 12.dp
+        val cardWidth = (maxWidth - gap * (options.size - 1)) / options.size
         Column(verticalArrangement = Arrangement.spacedBy(if (compact) 8.dp else 12.dp)) {
             RowTexts(title, summary, description, note, true, null, Modifier)
-            val cards: @Composable (Modifier) -> Unit = { cardModifier ->
-                options.forEachIndexed { index, option -> OptionCard(option, index == selected, cardModifier) { onSelect(index) } }
-            }
-            if (across) {
-                Row(
-                    Modifier.fillMaxWidth().height(IntrinsicSize.Min).selectableGroup(),
-                    horizontalArrangement = Arrangement.spacedBy(12.dp),
-                ) {
-                    cards(Modifier.weight(1f).fillMaxHeight())
+            Column {
+                val cards: @Composable (Modifier) -> Unit = { cardModifier ->
+                    options.forEachIndexed { index, option -> OptionCard(option, index == selected, cardModifier) { onSelect(index) } }
                 }
-            } else {
-                Column(Modifier.fillMaxWidth().selectableGroup(), verticalArrangement = Arrangement.spacedBy(8.dp)) {
-                    cards(Modifier.fillMaxWidth())
+                if (across) {
+                    Row(
+                        Modifier.fillMaxWidth().height(IntrinsicSize.Min).selectableGroup(),
+                        horizontalArrangement = Arrangement.spacedBy(gap),
+                    ) {
+                        cards(Modifier.weight(1f).fillMaxHeight())
+                    }
+                } else {
+                    Column(Modifier.fillMaxWidth().selectableGroup(), verticalArrangement = Arrangement.spacedBy(8.dp)) {
+                        cards(Modifier.fillMaxWidth())
+                    }
+                }
+                // 尖角：并排时指着选中卡片的中间，竖排时靠左。
+                val caretTarget = if (across) cardWidth * (selected + 0.5f) + gap * selected else CARET_HALF_WIDTH + 24.dp
+                val caretX by animateDpAsState(caretTarget, label = "选项面板尖角")
+                // 车主换了选项、新选项有面板时，等面板展开完把它整块滚进来；页面刚打开时的选中项不算。
+                // 面板底下再多露一截（下一行的开头），一看就知道面板到底了。
+                val panel = remember { BringIntoViewRequester() }
+                var panelSize by remember { mutableStateOf(IntSize.Zero) }
+                val margin = with(LocalDensity.current) { DETAIL_SCROLL_MARGIN.toPx() }
+                var shownFor by remember { mutableIntStateOf(selected) }
+                LaunchedEffect(selected) {
+                    if (selected == shownFor) return@LaunchedEffect
+                    shownFor = selected
+                    if (detail(selected) == null) return@LaunchedEffect
+                    delay(DETAIL_SETTLE_MS)
+                    panel.bringIntoView(Rect(0f, 0f, panelSize.width.toFloat(), panelSize.height + margin))
+                }
+                AnimatedContent(
+                    targetState = selected,
+                    modifier = Modifier
+                        .bringIntoViewRequester(panel)
+                        .onSizeChanged { panelSize = it },
+                    transitionSpec = {
+                        fadeIn(tween(DETAIL_FADE_IN_MS, delayMillis = DETAIL_FADE_OUT_MS)) togetherWith
+                            fadeOut(tween(DETAIL_FADE_OUT_MS)) using SizeTransform(clip = true)
+                    },
+                    label = "选项面板",
+                ) { index ->
+                    val content = detail(index)
+                    if (content != null) OptionDetail(caretX, content) else Spacer(Modifier.fillMaxWidth())
                 }
             }
         }
@@ -508,6 +563,74 @@ internal fun CardChoiceRow(
 }
 
 private val CARD_CHOICE_ACROSS_MIN = 520.dp
+private val CARET_HALF_WIDTH = 9.dp
+private val CARET_HEIGHT = 8.dp
+private const val DETAIL_FADE_IN_MS = 180
+private const val DETAIL_FADE_OUT_MS = 90
+
+/** 面板展开（淡入加高度变化）大致用的时间，过了再滚。 */
+private const val DETAIL_SETTLE_MS = 420L
+
+/** 滚动时面板下面多露出的高度。 */
+private val DETAIL_SCROLL_MARGIN = 64.dp
+
+/** 选中选项的设置面板：顶上的尖角加一块圆角面板，颜色和选中的卡片一样。 */
+@Composable
+private fun OptionDetail(caretX: Dp, content: @Composable ColumnScope.() -> Unit) {
+    Column(Modifier.fillMaxWidth().padding(top = 6.dp)) {
+        Spacer(
+            Modifier
+                .fillMaxWidth()
+                .height(CARET_HEIGHT)
+                .drawBehind {
+                    val x = caretX.toPx()
+                    val half = CARET_HALF_WIDTH.toPx()
+                    val caret = Path().apply {
+                        moveTo(x - half, size.height)
+                        lineTo(x, 0f)
+                        lineTo(x + half, size.height)
+                        close()
+                    }
+                    drawPath(caret, Palette.Tint)
+                },
+        )
+        Column(
+            Modifier
+                .fillMaxWidth()
+                .clip(RoundedCornerShape(14.dp))
+                .background(Palette.Tint)
+                .hideFirstDivider(),
+            content = content,
+        )
+    }
+}
+
+/** 选项面板里的第一行说明：[warn] 时琥珀色、前面一个提醒图标；否则是普通说明的颜色。 */
+@Composable
+internal fun DetailNote(text: String, warn: Boolean = false) {
+    val compact = LocalCompact.current
+    Row(
+        Modifier
+            .fillMaxWidth()
+            .groupDivider()
+            .rowPadding(compact),
+        verticalAlignment = Alignment.Top,
+    ) {
+        if (warn) {
+            Icon(
+                Glyphs.Alert,
+                contentDescription = null,
+                tint = Palette.Warn,
+                modifier = Modifier.padding(top = 1.dp, end = 8.dp).size(if (compact) 18.dp else 20.dp),
+            )
+        }
+        Text(
+            text,
+            style = if (warn) UiType.rowNote(compact) else UiType.rowDesc(compact),
+            color = if (warn) Palette.Warn else Palette.Text2,
+        )
+    }
+}
 
 @Composable
 private fun OptionCard(option: CardOption, selected: Boolean, modifier: Modifier, onClick: () -> Unit) {

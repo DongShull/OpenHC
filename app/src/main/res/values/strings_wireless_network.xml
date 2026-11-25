@@ -11,7 +11,7 @@
     <string name="settings_wireless_mode_hotspot">车机开热点</string>
     <string name="settings_wireless_mode_direct">5 GHz 直连</string>
     <string name="settings_wireless_mode_car">车机自带热点</string>
-    <string name="settings_wireless_mode_car_note">先在车机设置里打开自带热点（能选 5 GHz 就选），再把热点名、密码、频段填在下面。用完要自己在车机设置里关掉热点。</string>
+    <string name="settings_wireless_mode_car_note">填车机热点设置里的名称、密码和频段。热点要开着，或者打开下面的「自动打开车机热点」。</string>
     <string name="settings_car_hotspot_name">车机热点名</string>
     <string name="settings_car_hotspot_password">车机热点密码</string>
     <string name="settings_car_hotspot_band">车机热点频段</string>
@@ -23,6 +23,7 @@
     <!-- 首页无线卡片 -->
     <string name="wireless_network_line">方式：车机开热点（车机原来连的 WiFi 会断开）</string>
     <string name="wireless_network_line_car">方式：车机自带热点（车机热点要开着）</string>
+    <string name="wireless_network_line_car_auto">方式：车机自带热点（连接时自动打开）</string>
     <string name="wireless_network_line_direct">方式：5 GHz 直连（车机 WiFi 要开着）</string>
     <string name="wireless_hint_negotiating_hotspot">认证成功，车机正在开热点，和手机商量 WiFi…</string>
     <string name="wireless_hint_sending_hotspot">车机热点已打开，正在把热点信息发给手机…</string>
@@ -45,17 +46,27 @@
     <!-- 连接时暂停车机 WiFi 扫描（经车机本机的网络 ADB，可选、默认关） -->
     <string name="settings_scan_pause">直连时暂停车机 WiFi 扫描</string>
     <string name="settings_scan_pause_hint">试验功能。直连投屏时暂停车机自己找 WiFi（找的时候画面和声音可能顿一下），连接结束后恢复。要先在车机的开发者选项里打开网络 ADB，打开开关时会说明风险。语音助手、定位这类应用自己发起的扫描停不了。打开后从下一次直连投屏起生效，关掉马上恢复。</string>
-    <string name="settings_scan_pause_confirm_text">试验功能。车机 WiFi 开着却没连网络时，系统会定时扫描找网络，扫描时画面和声音可能顿一下。打开后，「5 GHz 直连」投屏期间，OpenHC 通过车机本机的网络 ADB 暂停系统自动找网络；连接结束、出错或下次打开应用时恢复。打开后从下一次直连投屏起生效，关掉马上恢复。\n\n要先在车机的开发者选项里打开网络 ADB（OpenHC 不会替你打开）。打开这个开关时，车机会弹框请求授权，请点「允许」。\n\n风险：网络 ADB 开着时，同一网络里的设备经车机上点允许后也能连上车机。不用这个功能时，请在车机上关掉网络 ADB。\n\n语音助手、定位等应用自己发起的扫描停不了。</string>
-    <string name="settings_scan_pause_cancel">取消</string>
-    <string name="settings_scan_pause_confirm">打开</string>
-    <string name="settings_scan_pause_checking">正在连车机的网络 ADB……车机弹出「允许调试吗」时请点「允许」（可以勾选一律允许）。</string>
+    <string name="settings_scan_pause_confirm_text">试验功能。车机 WiFi 开着却没连网络时，系统会定时扫描找网络，扫描时画面和声音可能顿一下。打开后，「5 GHz 直连」投屏期间，OpenHC 通过车机本机的网络 ADB 暂停系统自动找网络；连接结束、出错或下次打开应用时恢复。打开后从下一次直连投屏起生效，关掉马上恢复。\n\n要先在车机的开发者选项里打开网络 ADB（OpenHC 不会替你打开）。打开这个开关时，车机会弹框请求授权，请勾选「一律允许」再点「允许」（不勾的话以后每次都用不了）。\n\n风险：网络 ADB 开着时，同一网络里的设备经车机上点允许后也能连上车机。不用这个功能时，请在车机上关掉网络 ADB。\n\n语音助手、定位等应用自己发起的扫描停不了。</string>
+    <string name="settings_adb_cancel">取消</string>
+    <string name="settings_adb_confirm">打开</string>
+    <string name="settings_adb_checking">正在连车机的网络 ADB……车机弹出「允许调试吗」时，请勾选「一律允许」再点「允许」。</string>
     <string name="settings_scan_pause_paused">投屏中，已暂停车机 WiFi 扫描。</string>
     <string name="settings_scan_pause_restoring">正在恢复车机 WiFi 扫描……</string>
     <string name="settings_scan_pause_ready">检查通过：下次「5 GHz 直连」投屏时会暂停扫描。</string>
-    <string name="settings_scan_pause_adb_off">连不上车机的网络 ADB：请先在车机的开发者选项里打开网络 ADB（端口 5555），再关掉、打开这个开关重新检查。</string>
-    <string name="settings_scan_pause_not_approved">车机没有授权：关掉、再打开这个开关，在车机弹出的框里点「允许」。</string>
-    <string name="settings_scan_pause_tls_only">这台车机只支持加密的「无线调试」，这个功能用不了。</string>
+    <string name="settings_adb_adb_off">连不上车机的网络 ADB：请先在车机的开发者选项里打开网络 ADB（端口 5555），再关掉、打开这个开关重新检查。</string>
+    <string name="settings_adb_not_approved">车机没有授权：关掉、再打开这个开关，在车机弹出的框里勾选「一律允许」再点「允许」。</string>
+    <string name="settings_adb_tls_only">这台车机只支持加密的「无线调试」，这个功能用不了。</string>
     <string name="settings_scan_pause_unsupported">这台车机的系统没有这个开关，这个功能用不了。</string>
     <string name="settings_scan_pause_denied">车机系统不让改这个开关，这个功能用不了。</string>
-    <string name="settings_scan_pause_failed">没有成功（超时或出错）。请导出诊断日志反馈。</string>
+    <!-- 自动打开车机热点（经车机本机的网络 ADB，可选、默认关） -->
+    <string name="settings_car_hotspot_auto">自动打开车机热点</string>
+    <string name="settings_car_hotspot_auto_hint">手机连上来时，OpenHC 替你打开车机热点，这次连接结束后关掉；你自己打开的热点不会关。热点用车机设置里保存的名称和密码，上面要填得一样。要先在车机的开发者选项里打开网络 ADB，打开开关时会说明风险。从下一次连接起生效。</string>
+    <string name="settings_car_hotspot_auto_confirm_text">打开后，手机连上来要加入车机热点时，热点要是没开着，OpenHC 通过车机本机的网络 ADB 把它打开（用车机设置里保存的名称、密码和频段，不改热点设置），这次连接结束、出错或下次打开应用时关掉。你自己打开的热点不会关。\n\n热点开着时，车机自己连着的 WiFi 会断开，热点关掉后自动连回。手机连着车机热点时可能会用车机的流量上网，和你自己打开热点时一样。\n\n要先在车机的开发者选项里打开网络 ADB（OpenHC 不会替你打开）。打开这个开关时，车机会弹框请求授权，请勾选「一律允许」再点「允许」（不勾的话以后每次都用不了）。\n\n风险：网络 ADB 开着时，同一网络里的设备经车机上点允许后也能连上车机。不用这个功能时，请在车机上关掉网络 ADB。</string>
+    <string name="settings_car_hotspot_auto_ready">检查通过：连接时会自动打开车机热点。</string>
+    <string name="settings_car_hotspot_auto_opening">正在打开车机热点……</string>
+    <string name="settings_car_hotspot_auto_open">车机热点是 OpenHC 打开的，这次连接结束后关掉。</string>
+    <string name="settings_car_hotspot_auto_closing">正在关掉车机热点……</string>
+    <string name="settings_car_hotspot_auto_unsupported">这台车机的系统不支持自动打开热点，请在车机设置里自己打开。</string>
+    <string name="settings_car_hotspot_auto_denied">车机系统不让 OpenHC 打开热点，请在车机设置里自己打开。</string>
+    <string name="settings_adb_failed">没有成功（超时或出错）。请导出诊断日志反馈。</string>
 </resources>

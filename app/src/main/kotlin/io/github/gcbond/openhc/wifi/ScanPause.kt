@@ -4,76 +4,20 @@ import kotlinx.coroutines.flow.MutableStateFlow
 import kotlinx.coroutines.flow.StateFlow
 import kotlinx.coroutines.flow.asStateFlow
 
-/** 在车机上跑一次开关小程序的结果（[ScanSwitchMain] 的输出，加上连不上 ADB 的几种情况）。 */
-enum class ScanSwitchResult {
-    /** 开关改好了。 */
-    DONE,
-
-    /** 检查：ADB 授权了、系统有这个接口，整条路走得通。 */
-    READY,
-
-    /** 车机本机的网络 ADB 没开（端口连不上）。 */
-    ADB_OFF,
-
-    /** 车机没授权这个应用调试（没点允许）。 */
-    NOT_APPROVED,
-
-    /** 车机只接受加密的「无线调试」，不支持。 */
-    TLS_ONLY,
-
-    /** 车机系统里没有这个开关。 */
-    UNSUPPORTED,
-
-    /** 系统拒绝了 shell 身份调用。 */
-    DENIED,
-
-    /** 其他错误：超时、输出不对。 */
-    FAILED,
-}
-
-/** 在车机 shell 里跑开关小程序的命令行，以及解析它的输出。 */
+/** 暂停扫描的小程序（[ScanSwitchMain]）的命令行和输出。 */
 object ScanSwitchCommand {
     /** 小程序的入口类（安装包里的 [ScanSwitchMain]）。 */
     const val MAIN_CLASS = "io.github.gcbond.openhc.wifi.ScanSwitchMain"
 
-    fun line(apkPath: String, command: String): String {
-        require(command == ScanSwitchMain.PAUSE || command == ScanSwitchMain.RESTORE || command == ScanSwitchMain.CHECK)
-        return "CLASSPATH=${quote(apkPath)} app_process /system/bin $MAIN_CLASS $command"
-    }
+    val helper = AdbHelper(
+        MAIN_CLASS,
+        ScanSwitchMain.HEADER,
+        setOf(ScanSwitchMain.PAUSE, ScanSwitchMain.RESTORE, ScanSwitchMain.CHECK),
+    )
 
-    /** 找 `OPENHC_SCAN_SWITCH|结果|方法` 那一行；没有（小程序超时退出、起不来）或结果不认识时算 [ScanSwitchResult.FAILED]。 */
-    fun parse(output: String): ScanSwitchResult {
-        val line = output.lineSequence().map { it.trim() }.firstOrNull { it.startsWith(ScanSwitchMain.HEADER + "|") }
-            ?: return ScanSwitchResult.FAILED
-        return when (line.split('|').getOrNull(1)) {
-            "DONE" -> ScanSwitchResult.DONE
-            "READY" -> ScanSwitchResult.READY
-            "UNSUPPORTED" -> ScanSwitchResult.UNSUPPORTED
-            "DENIED" -> ScanSwitchResult.DENIED
-            else -> ScanSwitchResult.FAILED
-        }
-    }
+    fun line(apkPath: String, command: String): String = helper.line(apkPath, command)
 
-    /** 单引号括起来，路径里的单引号按 shell 规矩转义。 */
-    private fun quote(text: String) = "'" + text.replace("'", "'\\''") + "'"
-}
-
-/** 跑开关小程序（阻塞，几秒到十几秒）。[ask] 为真时车机不认这个应用的钥匙就弹「允许调试吗」等车主点。 */
-fun interface ScanSwitchRunner {
-    fun run(command: String, ask: Boolean): ScanSwitchResult
-}
-
-/** 「我们暂停了扫描、还没恢复」的记号，存在磁盘上：进程中途没了，下次启动按它恢复。 */
-interface ScanPauseJournal {
-    var pending: Boolean
-}
-
-/** 调度：都在同一个后台线程上按顺序跑。 */
-interface ScanPauseWorker {
-    fun execute(task: () -> Unit)
-
-    /** [delayMillis] 后跑；返回取消用的函数。 */
-    fun schedule(delayMillis: Long, task: () -> Unit): () -> Unit
+    fun parse(output: String): AdbSwitchResult = helper.parse(output)
 }
 
 /**
@@ -90,16 +34,16 @@ interface ScanPauseWorker {
  * 不是所有扫描都停得了：应用自己调扫描接口、定位服务的扫描不归这个开关管。
  */
 class ScanPause(
-    private val runner: ScanSwitchRunner,
-    private val journal: ScanPauseJournal,
+    private val runner: AdbHelperRunner,
+    private val journal: PendingJournal,
     private val enabled: () -> Boolean,
-    private val worker: ScanPauseWorker,
+    private val worker: AdbWorker,
     private val log: (String) -> Unit,
 ) {
     enum class Phase { IDLE, CHECKING, PAUSING, PAUSED, RESTORING }
 
     /** 设置页显示用：正在做什么、上一次的结果。 */
-    data class Status(val phase: Phase = Phase.IDLE, val last: ScanSwitchResult? = null)
+    data class Status(val phase: Phase = Phase.IDLE, val last: AdbSwitchResult? = null)
 
     private val mutableStatus = MutableStateFlow(Status())
     val status: StateFlow<Status> = mutableStatus.asStateFlow()
@@ -130,8 +74,8 @@ class ScanPause(
         update(Phase.PAUSING)
         val result = runner.run(ScanSwitchMain.PAUSE, ask = false)
         when (result) {
-            ScanSwitchResult.DONE -> log("投屏期间暂停车机 WiFi 扫描：已暂停")
-            ScanSwitchResult.FAILED -> log("暂停车机 WiFi 扫描结果不明（${result}），结束时照样恢复")
+            AdbSwitchResult.DONE -> log("投屏期间暂停车机 WiFi 扫描：已暂停")
+            AdbSwitchResult.FAILED -> log("暂停车机 WiFi 扫描结果不明（${result}），结束时照样恢复")
             else -> {
                 // 什么都没改；之前留下的待恢复记号保留。
                 if (!hadPending) journal.pending = false
@@ -172,12 +116,12 @@ class ScanPause(
         update(Phase.RESTORING)
         val result = runner.run(ScanSwitchMain.RESTORE, ask = false)
         when (result) {
-            ScanSwitchResult.DONE -> {
+            AdbSwitchResult.DONE -> {
                 journal.pending = false
                 log("已恢复车机 WiFi 扫描")
             }
             // 系统没有这个开关、或者不让改：之前也不可能改成，不用再试。
-            ScanSwitchResult.UNSUPPORTED, ScanSwitchResult.DENIED -> {
+            AdbSwitchResult.UNSUPPORTED, AdbSwitchResult.DENIED -> {
                 journal.pending = false
                 log("恢复车机 WiFi 扫描：$result，不再重试")
             }
@@ -202,7 +146,7 @@ class ScanPause(
         cancelRetry = null
     }
 
-    private fun update(phase: Phase, last: ScanSwitchResult? = mutableStatus.value.last) {
+    private fun update(phase: Phase, last: AdbSwitchResult? = mutableStatus.value.last) {
         mutableStatus.value = Status(phase, last)
     }
 

@@ -45,6 +45,7 @@ import io.github.gcbond.openhc.platform.log.Log
 import io.github.gcbond.openhc.platform.media.VideoDecoder
 import io.github.gcbond.openhc.platform.wifi.CarHotspot
 import io.github.gcbond.openhc.platform.wifi.CarHotspotSettings
+import io.github.gcbond.openhc.platform.wifi.CarHotspotSwitch
 import io.github.gcbond.openhc.platform.wifi.LocalHotspotOwner
 import io.github.gcbond.openhc.platform.wifi.MacText
 import io.github.gcbond.openhc.platform.wifi.WifiDirectGroupOwner
@@ -59,7 +60,10 @@ import io.github.gcbond.openhc.startup.BootStart
 import io.github.gcbond.openhc.startup.BootStartPolicy
 import io.github.gcbond.openhc.trust.FileTrustStore
 import io.github.gcbond.openhc.trust.TrustStoreCorruptException
+import io.github.gcbond.openhc.wifi.CarHotspotAuto
+import io.github.gcbond.openhc.wifi.CarHotspotAutoPreferences
 import io.github.gcbond.openhc.wifi.ScanPause
+import io.github.gcbond.openhc.wifi.hotspotOpenFailure
 import java.io.File
 import java.io.IOException
 import java.security.SecureRandom
@@ -130,6 +134,7 @@ class WirelessController(
 
     /** 「连接时暂停车机 WiFi 扫描」；单元测试里没有应用对象时为 null。 */
     private val scanPause: ScanPause? get() = (app as? OpenHcApp)?.scanPause
+    private val carHotspotAuto: CarHotspotAuto? get() = (app as? OpenHcApp)?.carHotspotAuto
     private val settings = AppSettings(app)
     private val worker = HandlerThread("OpenHC-Wireless").also { it.start() }
     private val handler = Handler(worker.looper)
@@ -461,6 +466,7 @@ class WirelessController(
         userStopped = false
         // 熄火不一定结束进程：之前暂停的车机 WiFi 扫描没恢复成的，每次开始无线连接时补一次。
         scanPause?.recover("开始无线连接")
+        carHotspotAuto?.recover("开始无线连接")
         if (wirelessPrefs.wiredOnly) return blocked(kind, WirelessNotice.WiredOnly, AutoHold.WIRED_ONLY)
         if (wiredActive()) return blocked(kind, WirelessNotice.WiredActive, AutoHold.WIRED_ACTIVE)
         // 本地热点安卓 8.0 起才有，更早的车机用不了无线。不要求车机 WiFi 开着：开热点时单射频车机自己的 WiFi 本来就会断。
@@ -551,9 +557,11 @@ class WirelessController(
         }
         cancelAutoRetry()
         val directGroup = carHotspot == null && wirelessPrefs.usesWifiDirect
+        // 和其他「下次连接生效」的设置一样，开始时读定。
+        val carHotspotAutoOpen = carHotspot != null && CarHotspotAutoPreferences(app).enabled
         val current = Attempt(
             ++attemptCounter, kind, config, adapter, identity.host, beacon, bluetoothTrigger, reconnect, resumeWiredAfter, directGroup,
-            carHotspot, dial,
+            carHotspot, carHotspotAutoOpen, dial,
         )
         attempt = current
         // 点「开始」顺带拨的也记进拨号规则：自动拨号不再叠着拨这台手机。
@@ -564,7 +572,7 @@ class WirelessController(
             "第 ${current.id} 次无线连接（${when (kind) { Kind.AUTO -> "等已配对的手机回连"; Kind.RECONNECT -> "车机主动回连"; Kind.MANUAL -> "用户开始" }}）：" +
                 "蓝牙地址来源 ${bluetooth.source}，deviceId ${config.deviceId.take(4)}…，" +
                 "画布 ${display.width}x${display.height}@${display.fps} dpi ${display.dpi}（界面大小 ${settings.uiScalePercent}%），系统 ${Build.VERSION.SDK_INT}，$wifi，" +
-                "已配对手机 ${trustStore.peerCount} 台，声音 ${audio ?: "关"}，手机加入的网络 ${when { carHotspot != null -> "车机自带热点（试验，$carHotspot）"; directGroup -> "WiFi 直连组（试验）"; else -> "本地热点" }}，" +
+                "已配对手机 ${trustStore.peerCount} 台，声音 ${audio ?: "关"}，手机加入的网络 ${when { carHotspot != null -> "车机自带热点（$carHotspot${if (carHotspotAutoOpen) "，自动打开" else ""}）"; directGroup -> "WiFi 直连组"; else -> "本地热点" }}，" +
                 "广播 ${beacon?.let { "开（重新发布 ${it.republishMillis / 1000} 秒，GATT ${if (it.gatt) "开" else "关"}${if (it.declareRandomAddress) "，声明随机地址" else ""}）" } ?: "不发"}" +
                 (dial?.let { "，同时车机拨手机（${MacText.mask(it.address)}）" } ?: ""),
         )
@@ -573,6 +581,15 @@ class WirelessController(
         apply(WirelessSignal.AttemptStarted(current.id, addressMismatch, autoReconnect = kind == Kind.AUTO, direct = directGroup))
         current.runner.start()
         watchTermination(current)
+    }
+
+    /** 第 [id] 次连接用的「自动打开车机热点」：只关这次连接自己打开的。 */
+    private fun hotspotSwitch(id: Int): CarHotspotSwitch? {
+        val auto = carHotspotAuto ?: return null
+        return object : CarHotspotSwitch {
+            override fun open(): String? = auto.open(id).hotspotOpenFailure()
+            override fun close() = auto.close(id)
+        }
     }
 
     private fun granted(permission: String) =
@@ -919,6 +936,8 @@ class WirelessController(
         val directGroup: Boolean = false,
         /** 这次不开本地热点，用车主已经打开的车机自带热点（设置里「无线方式」选了车机自带热点）。 */
         val carHotspot: CarHotspotSettings? = null,
+        /** 车机自带热点没开着时经车机本机 ADB 自动打开、结束时关掉（设置里「自动打开车机热点」）。 */
+        val carHotspotAutoOpen: Boolean = false,
         /** 扫码等待时同时由车机去拨的手机（[Kind.MANUAL] 点「开始」时），其他为 null。 */
         val dial: ReconnectTarget? = null,
     ) {
@@ -960,7 +979,9 @@ class WirelessController(
                 val car = carHotspot
                 if (car != null) {
                     // 车机自带热点是车主开的：不开本地热点，也不排「恢复车机 WiFi」。
-                    CarHotspot(app, car, events) { Log.i(TAG, "[$id] 车机热点：$it") }
+                    CarHotspot(app, car, events, if (carHotspotAutoOpen) hotspotSwitch(id) else null) {
+                        Log.i(TAG, "[$id] 车机热点：$it")
+                    }
                 } else {
                     // 收尾已经开始（停止之前排着的认证通过才走到这里）：别把收尾马上要排的复查取消掉。
                     if (!tearingDown) wifiRestore.onHotspotRequested()

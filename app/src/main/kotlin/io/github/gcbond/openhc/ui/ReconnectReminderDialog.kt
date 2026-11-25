@@ -25,6 +25,7 @@ import io.github.gcbond.openhc.settings.ClarityPreferences
 import io.github.gcbond.openhc.settings.MediaKeyPreferences
 import io.github.gcbond.openhc.settings.PendingSetting
 import io.github.gcbond.openhc.settings.WirelessPreferences
+import io.github.gcbond.openhc.wifi.CarHotspotAutoPreferences
 import io.github.gcbond.openhc.wifi.ScanPausePreferences
 
 /** 读出「下次连接才生效」的各项设置现在的值，进出设置页各读一次，对比看改了什么（见 [ReconnectReminder]）。 */
@@ -47,6 +48,7 @@ internal fun pendingSettingsSnapshot(context: Context, settings: AppSettings): M
             PendingSetting.CAR_HOTSPOT_NAME -> wireless.carHotspotName
             PendingSetting.CAR_HOTSPOT_PASSWORD -> wireless.carHotspotPassword
             PendingSetting.CAR_HOTSPOT_BAND -> wireless.carHotspotFiveGhz.toString()
+            PendingSetting.CAR_HOTSPOT_AUTO -> CarHotspotAutoPreferences(context).enabled.toString()
             PendingSetting.SCAN_PAUSE -> ScanPausePreferences(context).enabled.toString()
         }
     }
@@ -68,6 +70,7 @@ private fun PendingSetting.label(): Int = when (this) {
     PendingSetting.CAR_HOTSPOT_NAME -> R.string.settings_car_hotspot_name
     PendingSetting.CAR_HOTSPOT_PASSWORD -> R.string.settings_car_hotspot_password
     PendingSetting.CAR_HOTSPOT_BAND -> R.string.settings_car_hotspot_band
+    PendingSetting.CAR_HOTSPOT_AUTO -> R.string.settings_car_hotspot_auto
     PendingSetting.SCAN_PAUSE -> R.string.settings_scan_pause
 }
 

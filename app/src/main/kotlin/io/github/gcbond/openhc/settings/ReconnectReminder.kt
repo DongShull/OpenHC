@@ -22,6 +22,7 @@ enum class PendingSetting(val wirelessOnly: Boolean = false, val offIsImmediate:
     CAR_HOTSPOT_NAME(wirelessOnly = true),
     CAR_HOTSPOT_PASSWORD(wirelessOnly = true),
     CAR_HOTSPOT_BAND(wirelessOnly = true),
+    CAR_HOTSPOT_AUTO(wirelessOnly = true),
     SCAN_PAUSE(wirelessOnly = true, offIsImmediate = true),
 }
 

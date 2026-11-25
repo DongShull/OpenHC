@@ -12,6 +12,7 @@
     <string name="settings_wireless_mode_hotspot_text">最稳，车机原来的 WiFi 会断</string>
     <string name="settings_wireless_mode_direct_text">不断开车机原来的 WiFi</string>
     <string name="settings_wireless_mode_car_text">用车机系统里开着的热点</string>
+    <string name="settings_car_hotspot_auto_summary">连接时自动打开，断开后关掉</string>
     <string name="settings_scan_pause_summary">直连时画面偶尔顿一下，可以试试</string>
     <string name="settings_car_hotspot_band_summary">按车机热点设置里选的填</string>
     <string name="settings_bt_summary">一般不用改</string>

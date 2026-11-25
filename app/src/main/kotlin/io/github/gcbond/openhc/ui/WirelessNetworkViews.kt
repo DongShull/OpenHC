@@ -27,6 +27,7 @@ import io.github.gcbond.openhc.OpenHcApp
 import io.github.gcbond.openhc.R
 import io.github.gcbond.openhc.settings.WirelessNetworkPreferences
 import io.github.gcbond.openhc.settings.WirelessPreferences
+import io.github.gcbond.openhc.wifi.CarHotspotAutoPreferences
 import io.github.gcbond.openhc.wireless.WirelessUiState
 
 // 无线连接里 WiFi 那一段（车机开热点）：设置页「连接方式」组里的「退出后恢复车机 WiFi」、
@@ -62,7 +63,11 @@ internal fun wirelessNetworkText(state: WirelessUiState): String {
     return stringResource(
         when {
             direct -> R.string.wireless_network_line_direct
-            prefs.carHotspot -> R.string.wireless_network_line_car
+            prefs.carHotspot -> if (CarHotspotAutoPreferences(context).enabled) {
+                R.string.wireless_network_line_car_auto
+            } else {
+                R.string.wireless_network_line_car
+            }
             else -> R.string.wireless_network_line
         },
     )

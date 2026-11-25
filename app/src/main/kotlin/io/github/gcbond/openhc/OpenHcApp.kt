@@ -7,7 +7,9 @@ import io.github.gcbond.openhc.diagnostics.LogRecorder
 import io.github.gcbond.openhc.startup.BootStart
 import io.github.gcbond.openhc.startup.ProjectionSurfacer
 import io.github.gcbond.openhc.wireless.LePairingNames
+import io.github.gcbond.openhc.wifi.CarHotspotAuto
 import io.github.gcbond.openhc.wifi.ScanPause
+import io.github.gcbond.openhc.wifi.createCarHotspotAuto
 import io.github.gcbond.openhc.wifi.createScanPause
 import io.github.gcbond.openhc.wireless.WirelessController
 
@@ -41,6 +43,9 @@ class OpenHcApp : Application() {
     /** 「连接时暂停车机 WiFi 扫描」（可选，默认关）。 */
     internal val scanPause: ScanPause by lazy { createScanPause(this) }
 
+    /** 「自动打开车机热点」（可选，默认关）。 */
+    internal val carHotspotAuto: CarHotspotAuto by lazy { createCarHotspotAuto(this) }
+
     /** 本应用有没有界面在前台。 */
     internal val uiVisibility = UiVisibility()
 
@@ -61,6 +66,8 @@ class OpenHcApp : Application() {
         LePairingNames.restoreIfNeeded(this, "应用启动")
         // 上次暂停了车机 WiFi 扫描、没来得及恢复（进程中途没了）：现在恢复。
         scanPause.recover("应用启动")
+        // 上次自动打开的车机热点没来得及关：现在关掉。
+        carHotspotAuto.recover("应用启动")
     }
 
     private companion object {

@@ -31,7 +31,7 @@ import io.github.gcbond.openhc.OpenHcApp
 import io.github.gcbond.openhc.R
 import io.github.gcbond.openhc.wifi.ScanPause
 import io.github.gcbond.openhc.wifi.ScanPausePreferences
-import io.github.gcbond.openhc.wifi.ScanSwitchResult
+import io.github.gcbond.openhc.wifi.AdbSwitchResult
 
 /**
  * 直连时暂停车机 WiFi 扫描（默认关，见 [ScanPause]）。打开前先弹框写清用途和风险，车主点「打开」才打开并检查一遍
@@ -46,23 +46,23 @@ internal fun ScanPauseSetting() {
     var confirming by remember { mutableStateOf(false) }
     val status by app.scanPause.status.collectAsState()
     val note = when (status.phase) {
-        ScanPause.Phase.CHECKING -> R.string.settings_scan_pause_checking
+        ScanPause.Phase.CHECKING -> R.string.settings_adb_checking
         ScanPause.Phase.PAUSING, ScanPause.Phase.PAUSED -> R.string.settings_scan_pause_paused
         ScanPause.Phase.RESTORING -> R.string.settings_scan_pause_restoring
         ScanPause.Phase.IDLE -> if (!enabled) null else when (status.last) {
             null -> null
-            ScanSwitchResult.DONE, ScanSwitchResult.READY -> R.string.settings_scan_pause_ready
-            ScanSwitchResult.ADB_OFF -> R.string.settings_scan_pause_adb_off
-            ScanSwitchResult.NOT_APPROVED -> R.string.settings_scan_pause_not_approved
-            ScanSwitchResult.TLS_ONLY -> R.string.settings_scan_pause_tls_only
-            ScanSwitchResult.UNSUPPORTED -> R.string.settings_scan_pause_unsupported
-            ScanSwitchResult.DENIED -> R.string.settings_scan_pause_denied
-            ScanSwitchResult.FAILED -> R.string.settings_scan_pause_failed
+            AdbSwitchResult.DONE, AdbSwitchResult.READY, AdbSwitchResult.ALREADY_ON -> R.string.settings_scan_pause_ready
+            AdbSwitchResult.ADB_OFF -> R.string.settings_adb_adb_off
+            AdbSwitchResult.NOT_APPROVED -> R.string.settings_adb_not_approved
+            AdbSwitchResult.TLS_ONLY -> R.string.settings_adb_tls_only
+            AdbSwitchResult.UNSUPPORTED -> R.string.settings_scan_pause_unsupported
+            AdbSwitchResult.DENIED -> R.string.settings_scan_pause_denied
+            AdbSwitchResult.FAILED -> R.string.settings_adb_failed
         }
     }
     // 「请在车机上点允许」和失败原因要一眼看到；暂停中、检查通过放进「?」里。
     val warn = status.phase == ScanPause.Phase.CHECKING ||
-        status.phase == ScanPause.Phase.IDLE && status.last != ScanSwitchResult.DONE && status.last != ScanSwitchResult.READY
+        status.phase == ScanPause.Phase.IDLE && status.last != AdbSwitchResult.DONE && status.last != AdbSwitchResult.READY
     SwitchRow(
         title = stringResource(R.string.settings_scan_pause),
         summary = stringResource(R.string.settings_scan_pause_summary),
@@ -80,7 +80,9 @@ internal fun ScanPauseSetting() {
         }
     }
     if (confirming) {
-        ScanPauseConfirmDialog(
+        AdbConfirmDialog(
+            title = stringResource(R.string.settings_scan_pause),
+            text = stringResource(R.string.settings_scan_pause_confirm_text),
             onCancel = { confirming = false },
             onConfirm = {
                 confirming = false
@@ -92,9 +94,9 @@ internal fun ScanPauseSetting() {
     }
 }
 
-/** 打开前的确认：用途、要车主自己做的事、风险。点框外不关，免得误触。 */
+/** 用到车机网络 ADB 的功能打开前的确认：用途、要车主自己做的事、风险。点框外不关，免得误触。 */
 @Composable
-private fun ScanPauseConfirmDialog(onCancel: () -> Unit, onConfirm: () -> Unit) {
+internal fun AdbConfirmDialog(title: String, text: String, onCancel: () -> Unit, onConfirm: () -> Unit) {
     Dialog(onDismissRequest = onCancel, properties = DialogProperties(dismissOnClickOutside = false)) {
         val compact = LocalCompact.current
         Column(
@@ -106,9 +108,9 @@ private fun ScanPauseConfirmDialog(onCancel: () -> Unit, onConfirm: () -> Unit) 
                 .padding(20.dp),
             verticalArrangement = Arrangement.spacedBy(14.dp),
         ) {
-            Text(stringResource(R.string.settings_scan_pause), style = UiType.status, color = Palette.Text)
+            Text(title, style = UiType.status, color = Palette.Text)
             Text(
-                stringResource(R.string.settings_scan_pause_confirm_text),
+                text,
                 style = UiType.rowTitle(compact).copy(lineHeight = 1.5.em, fontWeight = FontWeight.Normal),
                 color = Palette.Text,
                 modifier = Modifier
@@ -116,8 +118,8 @@ private fun ScanPauseConfirmDialog(onCancel: () -> Unit, onConfirm: () -> Unit) 
                     .verticalScroll(rememberScrollState()),
             )
             Row(Modifier.align(Alignment.End), horizontalArrangement = Arrangement.spacedBy(12.dp)) {
-                ActionButton(stringResource(R.string.settings_scan_pause_cancel), onClick = onCancel)
-                ActionButton(stringResource(R.string.settings_scan_pause_confirm), onClick = onConfirm, kind = ActionKind.PRIMARY)
+                ActionButton(stringResource(R.string.settings_adb_cancel), onClick = onCancel)
+                ActionButton(stringResource(R.string.settings_adb_confirm), onClick = onConfirm, kind = ActionKind.PRIMARY)
             }
         }
     }
