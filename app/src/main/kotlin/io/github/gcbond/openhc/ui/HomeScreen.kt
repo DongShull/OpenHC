@@ -129,16 +129,15 @@ internal fun HomeScreen(
     }
 }
 
-/** 顶栏：左边应用标记和名称，正中深浅色切换，右边「设置」。 */
+/** 顶栏：左边「设置」（靠近驾驶位，和设置页的「返回」同一位置），正中深浅色切换，右边应用标记和名称。 */
 @Composable
 private fun HomeTopBar(onOpenSettings: () -> Unit, modifier: Modifier = Modifier) {
     TopBar(
-        start = {
+        start = { TopBarButton(stringResource(R.string.action_settings), onOpenSettings, glyph = Glyphs.Gear) },
+        end = {
             AppMark()
-            Spacer(Modifier.width(12.dp))
             PageTitle(stringResource(R.string.app_name))
         },
-        end = { TopBarButton(stringResource(R.string.action_settings), onOpenSettings, glyph = Glyphs.Gear) },
         modifier = modifier,
     )
 }
