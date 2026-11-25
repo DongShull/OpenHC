@@ -151,6 +151,7 @@ internal fun WirelessModeSetting(state: WirelessSettingsState) {
                         DetailNote(stringResource(R.string.settings_wireless_mode_car_note))
                         CarHotspotFields(state)
                         CarHotspotAutoSetting()
+                        ScanPauseSetting()
                     }
                 }
                 else -> null

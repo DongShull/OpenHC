@@ -45,14 +45,14 @@
     <string name="wireless_restore_unavailable">这台车机打不开系统的 WiFi 页面，请在车机设置里手动打开 WiFi。</string>
     <!-- 连接时暂停车机 WiFi 扫描（经车机本机的网络 ADB，可选、默认关） -->
     <string name="settings_scan_pause">投屏时暂停车机搜 WiFi</string>
-    <string name="settings_scan_pause_hint">车机隔一阵会搜一下附近的 WiFi，搜的那一下画面和声音可能顿一下。打开后，直连投屏时车机先不搜，断开后恢复。需要车机打开网络 ADB，打开开关时会说明风险。语音助手、定位自己发起的搜索管不了，效果还在验证。</string>
-    <string name="settings_scan_pause_confirm_text">打开后，「5 GHz 直连」投屏时，OpenHC 通过车机本机的网络 ADB 让车机暂停搜 WiFi，投屏结束、出错或下次打开应用时恢复。车机搜 WiFi 的那一下画面和声音可能顿一下，这个开关就是为了减少这种情况；语音助手、定位自己发起的搜索管不了，效果还在验证。\n\n要你先做：在车机的开发者选项里打开网络 ADB（OpenHC 不会替你打开）。打开开关后车机会弹框，请勾选「一律允许」再点「允许」（不勾的话以后每次都用不了）。\n\n风险：网络 ADB 开着时，同一网络里的设备经你在车机上点允许后也能连上车机。不用这个功能时，在车机上关掉网络 ADB。</string>
+    <string name="settings_scan_pause_hint">车机隔一阵会搜一下附近的 WiFi，搜的那一下画面和声音可能顿一下。打开后，投屏时车机先不搜，断开后恢复：5 GHz 直连时都会暂停；车机自带热点时，只在车机自己的 WiFi 还开着、又没连网络时才暂停（多数车机开热点时 WiFi 是关的，本来就不搜）。需要车机打开网络 ADB，打开开关时会说明风险。语音助手、定位自己发起的搜索管不了，效果还在验证。</string>
+    <string name="settings_scan_pause_confirm_text">打开后，投屏时 OpenHC 通过车机本机的网络 ADB 让车机暂停搜 WiFi，投屏结束、出错或下次打开应用时恢复。「5 GHz 直连」时都会暂停；「车机自带热点」时只在车机自己的 WiFi 还开着、又没连网络时才暂停。车机搜 WiFi 的那一下画面和声音可能顿一下，这个开关就是为了减少这种情况；语音助手、定位自己发起的搜索管不了，效果还在验证。\n\n要你先做：在车机的开发者选项里打开网络 ADB（OpenHC 不会替你打开）。打开开关后车机会弹框，请勾选「一律允许」再点「允许」（不勾的话以后每次都用不了）。\n\n风险：网络 ADB 开着时，同一网络里的设备经你在车机上点允许后也能连上车机。不用这个功能时，在车机上关掉网络 ADB。</string>
     <string name="settings_adb_cancel">取消</string>
     <string name="settings_adb_confirm">打开</string>
     <string name="settings_adb_checking">正在连车机的网络 ADB……车机弹出「允许调试吗」时，请勾选「一律允许」再点「允许」。</string>
     <string name="settings_scan_pause_paused">投屏中，已暂停车机搜 WiFi。</string>
     <string name="settings_scan_pause_restoring">正在恢复车机搜 WiFi……</string>
-    <string name="settings_scan_pause_ready">检查通过：下次直连投屏时会暂停车机搜 WiFi。</string>
+    <string name="settings_scan_pause_ready">检查通过：下次投屏时会暂停车机搜 WiFi。</string>
     <string name="settings_adb_adb_off">连不上车机的网络 ADB：请先在车机的开发者选项里打开网络 ADB（端口 5555），再关掉、打开这个开关重新检查。</string>
     <string name="settings_adb_not_approved">车机没有授权：关掉、再打开这个开关，在车机弹出的框里勾选「一律允许」再点「允许」。</string>
     <string name="settings_adb_tls_only">这台车机只支持加密的「无线调试」，这个功能用不了。</string>

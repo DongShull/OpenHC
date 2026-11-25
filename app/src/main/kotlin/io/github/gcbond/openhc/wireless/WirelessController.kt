@@ -1110,8 +1110,13 @@ class WirelessController(
             // 投屏开始了才算连成功：记下这台手机，之后「自动连接手机」就会拨它。
             is SessionEvent.VideoStarted -> {
                 current.projected = true
-                // 直连投屏期间车机 WiFi 没连网络、系统会定时扫描：设置打开时暂停（见 [ScanPause]）。
-                if (current.directGroup) scanPause?.sessionStarted(current.id)
+                // 直连投屏期间车机 WiFi 没连网络、系统会定时扫描；用车机自带热点时，有的车机自己的 WiFi 还开着、没连网络，
+                // 也会一边开热点一边搜（多数车机开热点时 WiFi 是关的，就不用管）。设置打开时暂停（见 [ScanPause]）。
+                val searchingBesideHotspot = current.carHotspot != null && WifiStatus.clientSearching(app)
+                if (current.carHotspot != null) {
+                    Log.i(TAG, "[${current.id}] 投屏开始：车机自己的 WiFi${if (searchingBesideHotspot) "开着、没连网络（会一直搜）" else "没在搜"}")
+                }
+                if (current.directGroup || searchingBesideHotspot) scanPause?.sessionStarted(current.id)
                 current.phoneAddress?.let { address ->
                     if (wirelessPrefs.rememberPhone(address)) Log.i(TAG, "记下连成功的手机（${MacText.mask(address)}），之后会自动连它")
                 }
