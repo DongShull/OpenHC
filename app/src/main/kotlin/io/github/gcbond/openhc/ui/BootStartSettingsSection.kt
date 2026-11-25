@@ -112,7 +112,8 @@ internal fun BootStartSettingsSection(autoConnect: Boolean = false, extraRows: @
             enabled = BootStart.isEnabled(context)
         }
         extraRows()
-        SwitchRow(
+        // 开机静默连接还没在车上验证过，暂时不显示（见 BootStart.SILENT_AVAILABLE）。
+        if (BootStart.SILENT_AVAILABLE) SwitchRow(
             title = stringResource(R.string.settings_boot_silent),
             summary = stringResource(R.string.settings_boot_silent_summary),
             checked = silent,
