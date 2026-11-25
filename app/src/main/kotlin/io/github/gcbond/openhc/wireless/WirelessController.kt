@@ -611,11 +611,12 @@ class WirelessController(
     }
 
     /**
-     * 这次连接发不发广播、怎么发：只有被动等手机回连（已不再自动进入）才发；扫码连接不用（手机按二维码直接连车机），
-     * 车机主动回连也不用。还要有广播权限、车机支持。不发返回 null。
+     * 这次连接发不发广播、怎么发：等扫码（用户点开始）和被动等手机回连（已不再自动进入）时发：没配对过、或者删了这辆车的
+     * 手机靠广播弹「发现车机」，点连接、输入屏幕上的连接码就能连，不一定要扫码；配对过的手机也能靠它自己连上来。
+     * 车机主动回连不发。还要有广播权限、车机支持；用户点开始时发不了只是少一条路，照样能扫码。不发返回 null。
      */
     private fun beaconPlan(kind: Kind, adapter: BluetoothAdapter): ReconnectBeacon.Options? {
-        if (kind != Kind.AUTO) return null
+        if (kind == Kind.RECONNECT) return null
         val missing = WirelessPermissions.advertise(Build.VERSION.SDK_INT).filterNot { granted(it) }
         if (missing.isNotEmpty()) {
             Log.i(TAG, "没有蓝牙广播权限，这次不发广播（${if (kind == Kind.AUTO) "不进入等待" else "只能扫码"}）")
