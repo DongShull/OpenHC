@@ -1,0 +1,52 @@
+# =============================================================================
+# 发版点火通道（借鉴 MovieClaw release-kick.yml）
+#
+# 当处于只能推分支、不方便推 tag 或点网页的环境时：
+#   git push origin HEAD:release-kick/v0.3.1
+# 本工作流会自动核对 app/build.gradle.kts 里的 versionName，调用 android.yml
+# 执行两段式正式发版，随后立即删除一次性点火分支。
+# =============================================================================
+name: 发版点火
+
+on:
+  push:
+    branches:
+      - "release-kick/v*"
+
+permissions:
+  contents: write
+  actions: write
+
+jobs:
+  kick:
+    runs-on: ubuntu-latest
+    env:
+      GH_TOKEN: ${{ github.token }}
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: 校验版本并触发正式版发布工作流
+        run: |
+          set -euo pipefail
+          TAG="${GITHUB_REF_NAME#release-kick/}"
+          if ! echo "$TAG" | grep -Eq '^v[0-9]+\.[0-9]+\.[0-9]+([-.][0-9A-Za-z.]+)?$'; then
+            echo "::error::点火分支名不合法：$TAG（应形如 release-kick/v0.3.1）"
+            exit 1
+          fi
+          ACTUAL=$(sed -n 's/.*versionName *= *"\([^"]*\)".*/\1/p' app/build.gradle.kts | head -n 1)
+          BARE="${TAG#v}"
+          BARE="${BARE%%-*}"
+          if [ "$BARE" != "$ACTUAL" ]; then
+            echo "::error::点火标签 $TAG 与分支上 app/build.gradle.kts 的 versionName=$ACTUAL 不一致"
+            exit 1
+          fi
+          DEFAULT_BRANCH=$(gh api "repos/$GITHUB_REPOSITORY" --jq .default_branch)
+          # 在触发提交所在分支或默认分支上启动发版
+          gh workflow run android.yml --repo "$GITHUB_REPOSITORY" --ref "$DEFAULT_BRANCH" -f release_tag="$TAG"
+
+      - name: 清理一次性点火分支
+        if: always()
+        run: |
+          gh api -X DELETE "repos/$GITHUB_REPOSITORY/git/refs/heads/$GITHUB_REF_NAME" \
+            && echo "已清理点火分支 $GITHUB_REF_NAME" \
+            || echo "::warning::点火分支清理失败：$GITHUB_REF_NAME"

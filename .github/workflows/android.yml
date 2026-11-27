@@ -1,9 +1,32 @@
+# =============================================================================
+# 构建、全量测试与全自动发版流水线（吸收 MovieClaw 发版工程实践）
+#
+# 三条自动化发版入口：
+#   1. 日常推分支（main / feat/*）：自动跑全套测试 + R8 瘦身签名 + aapt2/apksigner 守门校验
+#      + 自动截取 Git 提交说明 → 覆盖更新 `car-opt-latest` 预发布直链（随时上车下载 .apk）。
+#   2. 推送正式标签（`v0.3.1` 等）或手动输入 `release_tag`：校验版本号与 app/build.gradle.kts 一致，
+#      采用「Draft 草稿上传 → 产物齐全核验 → 原子转正」两段式发布正式版 Release。
+#   3. 点火分支（`release-kick/vX.Y.Z`，见 release-kick.yml）：推分支即可触发正式发版并自毁信使分支。
+# =============================================================================
 name: 构建与测试
+
+concurrency:
+  group: build-${{ inputs.release_tag || github.ref }}
+  cancel-in-progress: ${{ github.event_name != 'workflow_dispatch' && !startsWith(github.ref, 'refs/tags/v') }}
 
 on:
   push:
+    branches-ignore:
+      - "release-kick/**"
+    tags-ignore:
+      - car-opt-latest
   pull_request:
   workflow_dispatch:
+    inputs:
+      release_tag:
+        description: "可选：正式发版标签（如 v0.3.1，留空则发布/更新分支测试版 car-opt-latest）"
+        required: false
+        default: ""
 
 permissions:
   contents: write
@@ -11,11 +34,34 @@ permissions:
 jobs:
   build:
     runs-on: ubuntu-latest
+    timeout-minutes: 25
     steps:
       - uses: actions/checkout@v4
+        with:
+          fetch-depth: 0
 
       - name: 拒绝提交凭据（见 SECURITY.md）
         run: python3 tools/check_public_tree.py
+
+      - name: 核对正式发版标签与版本号（仅正式发版时执行）
+        env:
+          TARGET_TAG: ${{ inputs.release_tag || (startsWith(github.ref, 'refs/tags/v') && github.ref_name || '') }}
+        run: |
+          set -euo pipefail
+          if [ -z "$TARGET_TAG" ]; then
+            exit 0
+          fi
+          if ! echo "$TARGET_TAG" | grep -Eq '^v[0-9]+\.[0-9]+\.[0-9]+([-.][0-9A-Za-z.]+)?$'; then
+            echo "::error::正式版标签格式不合法：$TARGET_TAG（应如 v0.3.1）"
+            exit 1
+          fi
+          GRADLE_VER=$(sed -n 's/.*versionName *= *"\([^"]*\)".*/\1/p' app/build.gradle.kts | head -n 1)
+          BARE="${TARGET_TAG#v}"
+          BARE="${BARE%%-*}"
+          if [ "$BARE" != "$GRADLE_VER" ]; then
+            echo "::error::标签 $TARGET_TAG 与 app/build.gradle.kts 的 versionName=$GRADLE_VER 不一致"
+            exit 1
+          fi
 
       - uses: actions/setup-java@v4
         with:
@@ -23,19 +69,23 @@ jobs:
           java-version: "17"
 
       - uses: gradle/actions/setup-gradle@v4
+        with:
+          cache-read-only: false
 
-      - name: 注入连接参数与签名凭据（若已配置仓库 Secrets）
+      - name: 注入连接参数与签名凭据（最小权限隔离）
         env:
           IDENTITY_JSON: ${{ secrets.OPENHC_IDENTITY_JSON }}
           KEYSTORE_B64: ${{ secrets.OPENHC_KEYSTORE_B64 }}
           KEY_PASSWORD: ${{ secrets.OPENHC_KEY_PASSWORD }}
         run: |
           set -euo pipefail
+          umask 077
           if [ -n "$IDENTITY_JSON" ]; then
             ID_DIR="$RUNNER_TEMP/openhc-identity"
             mkdir -p "$ID_DIR"
             printf '%s' "$IDENTITY_JSON" > "$ID_DIR/openhc-identity.json"
             echo "OPENHC_IDENTITY_DIR=$ID_DIR" >> "$GITHUB_ENV"
+            echo "HAS_SECRETS=true" >> "$GITHUB_ENV"
           fi
           if [ -n "$KEYSTORE_B64" ] && [ -n "$KEY_PASSWORD" ]; then
             SIGN_DIR="$RUNNER_TEMP/openhc-signing"
@@ -49,35 +99,102 @@ jobs:
       - name: 运行全部检查并构建安装包（Release + Debug）
         run: ./gradlew --console=plain check assembleRelease assembleDebug
 
-      - name: 整理输出 APK
+      - name: 清理临时签名与连接凭据
+        if: always()
+        run: rm -rf "$RUNNER_TEMP/openhc-identity" "$RUNNER_TEMP/openhc-signing"
+
+      - name: 守门校验 APK 完整性并自动提取提交说明
+        id: release_meta
+        env:
+          TAG_OVERRIDE: ${{ inputs.release_tag }}
         run: |
+          set -euo pipefail
           mkdir -p dist
+          python3 tools/generate_release_notes.py \
+            --tag-override "$TAG_OVERRIDE" \
+            --out-notes dist/release-notes.md
+          STEM=$(grep '^apk_stem=' "$GITHUB_OUTPUT" | tail -n 1 | cut -d= -f2-)
           REL_APK=$(find app/build/outputs/apk/release -name "*.apk" | head -n 1)
           DBG_APK=$(find app/build/outputs/apk/debug -name "*.apk" | head -n 1)
-          cp "$REL_APK" "dist/OpenHC-0.3.0-car-opt-release.apk"
-          cp "$DBG_APK" "dist/OpenHC-0.3.0-car-opt-debug.apk"
-          ls -lh dist/
+          cp "$REL_APK" "dist/${STEM}-release.apk"
+          cp "$DBG_APK" "dist/${STEM}-debug.apk"
 
-      - name: 上传 APK 构建产物
+          BUILD_TOOLS=$(ls -d "$ANDROID_HOME"/build-tools/* | sort -V | tail -n 1)
+          CERT_FLAG=""
+          if [ "${HAS_SECRETS:-}" = "true" ]; then
+            CERT_FLAG="--require-release-cert"
+          fi
+          python3 tools/verify_release_apk.py \
+            --dist-dir dist \
+            --release-apk "dist/${STEM}-release.apk" \
+            --aapt2 "$BUILD_TOOLS/aapt2" \
+            --apksigner "$BUILD_TOOLS/apksigner" \
+            $CERT_FLAG
+
+          # 重新运行一次，将 APK 体积、SHA-256 与签名指纹写入更新说明
+          sed -i '/^release_tag=/d;/^release_title=/d;/^prerelease=/d;/^apk_stem=/d' "$GITHUB_OUTPUT"
+          python3 tools/generate_release_notes.py \
+            --tag-override "$TAG_OVERRIDE" \
+            --out-notes dist/release-notes.md
+          cat dist/release-notes.md >> "$GITHUB_STEP_SUMMARY"
+
+      - name: 上传 Actions 构建产物备份
         uses: actions/upload-artifact@v4
         with:
           name: OpenHC-car-opt-apk
-          path: dist/*.apk
+          path: |
+            dist/*.apk
+            dist/checksums.txt
           if-no-files-found: error
           retention-days: 30
 
-      - name: 发布直链 APK 到 Releases（免解压直接下载 .apk）
+      - name: 两段式原子发布直链 APK 与自动更新说明到 Releases
         if: github.event_name != 'pull_request'
         env:
           GH_TOKEN: ${{ github.token }}
+          TAG: ${{ steps.release_meta.outputs.release_tag }}
+          TITLE: ${{ steps.release_meta.outputs.release_title }}
+          PRERELEASE: ${{ steps.release_meta.outputs.prerelease }}
+          STEM: ${{ steps.release_meta.outputs.apk_stem }}
         run: |
           set -euo pipefail
-          TAG="car-opt-latest"
-          TITLE="OpenHC 0.3.0 车机增强版（最新自动构建）"
-          NOTES=$(printf '分支：`%s` | 提交：`%s`\n\n直接点击下方 **Assets** 里的 `.apk` 文件即可下载安装（无需解压 `.zip`）：\n- **推荐安装**：`OpenHC-0.3.0-car-opt-release.apk`（R8 瘦身签名版，内置连接参数 + 全链路优化 + 诊断页实时滚动日志）\n- **调试备用**：`OpenHC-0.3.0-car-opt-debug.apk`\n' "$GITHUB_REF_NAME" "${GITHUB_SHA::7}")
-          if gh release view "$TAG" >/dev/null 2>&1; then
-            gh release upload "$TAG" dist/*.apk --clobber
-            gh release edit "$TAG" --title "$TITLE" --notes "$NOTES" --prerelease
-          else
-            gh release create "$TAG" dist/*.apk --title "$TITLE" --notes "$NOTES" --prerelease
+          CREATE_PRE_FLAG=""
+          PUBLISH_FLAG="--latest"
+          if [ "$PRERELEASE" = "true" ]; then
+            CREATE_PRE_FLAG="--prerelease"
+            PUBLISH_FLAG="--prerelease"
           fi
+
+          if ! gh release view "$TAG" --repo "$GITHUB_REPOSITORY" >/dev/null 2>&1; then
+            # 新发版：先建 Draft 草稿，上传并核验齐全后再转正，杜绝半成品 404 窗口
+            gh release create "$TAG" --repo "$GITHUB_REPOSITORY" \
+              --target "$GITHUB_SHA" --draft \
+              --title "$TITLE" --notes-file dist/release-notes.md $CREATE_PRE_FLAG
+            gh release upload "$TAG" --repo "$GITHUB_REPOSITORY" --clobber \
+              "dist/${STEM}-release.apk" "dist/${STEM}-debug.apk" dist/checksums.txt
+            ASSETS=$(gh release view "$TAG" --repo "$GITHUB_REPOSITORY" --json assets --jq '.assets[].name')
+            for req in "${STEM}-release.apk" "${STEM}-debug.apk" "checksums.txt"; do
+              echo "$ASSETS" | grep -qx "$req" || { echo "::error::缺少附件 $req，拒绝转正"; exit 1; }
+            done
+            gh release edit "$TAG" --repo "$GITHUB_REPOSITORY" --draft=false $PUBLISH_FLAG
+          else
+            IS_DRAFT=$(gh release view "$TAG" --repo "$GITHUB_REPOSITORY" --json isDraft --jq .isDraft)
+            if [ "$IS_DRAFT" = "true" ]; then
+              gh release edit "$TAG" --repo "$GITHUB_REPOSITORY" --target "$GITHUB_SHA"
+            fi
+            # 先覆盖上传最新产物（零 404 间隙），再清理改名遗留的旧资产并刷新更新说明
+            gh release upload "$TAG" --repo "$GITHUB_REPOSITORY" --clobber \
+              "dist/${STEM}-release.apk" "dist/${STEM}-debug.apk" dist/checksums.txt
+            OLD_ASSETS=$(gh release view "$TAG" --repo "$GITHUB_REPOSITORY" --json assets --jq '.assets[].name')
+            for asset in $OLD_ASSETS; do
+              case "$asset" in
+                "${STEM}-release.apk"|"${STEM}-debug.apk"|"checksums.txt") ;;
+                *) gh release delete-asset "$TAG" "$asset" --repo "$GITHUB_REPOSITORY" --yes || true ;;
+              esac
+            done
+            gh release edit "$TAG" --repo "$GITHUB_REPOSITORY" \
+              --title "$TITLE" --notes-file dist/release-notes.md --draft=false $PUBLISH_FLAG
+          fi
+
+          URL="https://github.com/$GITHUB_REPOSITORY/releases/tag/$TAG"
+          printf '\n---\n🚀 **Releases 直链页面**：%s\n' "$URL" >> "$GITHUB_STEP_SUMMARY"
