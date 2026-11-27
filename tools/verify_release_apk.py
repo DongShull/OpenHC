@@ -1,7 +1,7 @@
 #!/usr/bin/env python3
 """安装包完整性与签名守门员（参考 MovieClaw 的 build-release-metadata.py）：
 
-在发布到 GitHub Releases 前，强制对构建出的正式 APK 做四重校验：
+在发布到 GitHub Releases 前，强制对构建出的正式 APK 做校验：
 1. `aapt2 dump badging`：核对 applicationId、versionName、versionCode、minSdkVersion，且禁止 debuggable；
 2. ZIP / DEX 结构自检：确认 `assets/openhc-identity.json` 已打进包内且非空，确认 ADB 辅助入口类
    `HotspotSwitchMain` 与 `ScanSwitchMain` 未被 R8 误裁；
@@ -25,7 +25,14 @@ def sha256_file(path: Path) -> str:
     return h.hexdigest()
 
 
-def verify_release_apk(apk: Path, aapt2: str, apksigner: str, require_release_cert: bool) -> dict:
+def verify_release_apk(
+    apk: Path,
+    aapt2: str,
+    apksigner: str,
+    require_release_cert: bool,
+    expected_version: str,
+    expected_code: int,
+) -> dict:
     badging = subprocess.check_output([aapt2, "dump", "badging", str(apk)], text=True)
     pkg_match = re.search(r"^package: (.+)$", badging, re.MULTILINE)
     if not pkg_match:
@@ -35,6 +42,10 @@ def verify_release_apk(apk: Path, aapt2: str, apksigner: str, require_release_ce
         raise ValueError(f"包名异常：{fields.get('name')}")
     if "application-debuggable" in badging:
         raise ValueError("正式版 Release APK 不允许带 application-debuggable 标记")
+    if expected_version and fields.get("versionName") != expected_version:
+        raise ValueError(f"APK 内置 versionName={fields.get('versionName')} 与目标版本 {expected_version} 不一致")
+    if expected_code > 0 and int(fields.get("versionCode", "0")) != expected_code:
+        raise ValueError(f"APK 内置 versionCode={fields.get('versionCode')} 与目标编码 {expected_code} 不一致")
 
     sdk_match = re.search(r"^(?:minSdkVersion|sdkVersion):'(\d+)'", badging, re.MULTILINE)
     if sdk_match is None:
@@ -86,6 +97,8 @@ def main() -> int:
     parser.add_argument("--release-apk", type=Path, required=True)
     parser.add_argument("--aapt2", required=True)
     parser.add_argument("--apksigner", required=True)
+    parser.add_argument("--expected-version", default="")
+    parser.add_argument("--expected-code", type=int, default=0)
     parser.add_argument("--require-release-cert", action="store_true")
     args = parser.parse_args()
 
@@ -94,6 +107,8 @@ def main() -> int:
         args.aapt2,
         args.apksigner,
         args.require_release_cert,
+        args.expected_version,
+        args.expected_code,
     )
 
     apks = sorted(args.dist_dir.glob("*.apk"))

@@ -36,6 +36,9 @@ val identityDir: File? = (
         }
     }
 
+val overrideVersionName: String? = providers.gradleProperty("openhc.versionName").orNull?.takeIf { it.isNotBlank() }
+val overrideVersionCode: Int? = providers.gradleProperty("openhc.versionCode").orNull?.toIntOrNull()
+
 android {
     namespace = "io.github.gcbond.openhc"
     compileSdk = libs.versions.compileSdk.get().toInt()
@@ -44,9 +47,10 @@ android {
         applicationId = "io.github.gcbond.openhc"
         minSdk = libs.versions.minSdk.get().toInt()
         targetSdk = libs.versions.targetSdk.get().toInt()
-        // versionCode = 主版本 × 10000 + 次版本 × 100 + 补丁号。
-        versionCode = 300
-        versionName = "0.3.0"
+        // 版本号规则：X.Y.Z = 大版本.正式版.测试预发布版（Z=0 为正式版，Z>=1 为测试预发布版）。
+        // versionCode = 大版本 × 10000 + 正式版 × 100 + 测试预发布版。
+        versionCode = overrideVersionCode ?: 300
+        versionName = overrideVersionName ?: "0.3.0"
     }
 
     sourceSets {
