@@ -55,9 +55,13 @@ internal object LogRecorder {
     private val queueNotEmpty = queueLock.newCondition()
 
     @Volatile
+    private var appContext: Context? = null
+
+    @Volatile
     private var dir: File? = null
 
     // 以下由 fileLock 保护。
+    private var writerInitialized = false
     private var writer: BufferedWriter? = null
     private var written = 0L
 
@@ -82,6 +86,7 @@ internal object LogRecorder {
             if (buffer.enqueueRaw(line)) onWake()
         }
         synchronized(fileLock) {
+            ensureWriterLocked()
             writeQueued()
             flushQuietly()
             buffer.enqueueInitial(LiveLogBuffer.readTailRaw(logFiles(), buffer.maxLines))
@@ -91,12 +96,12 @@ internal object LogRecorder {
         return { liveListeners.remove(listener) }
     }
 
-    /** 开始记（应用启动时调一次；再调不做什么）。 */
+    /** 开始记（应用启动时调一次；再调不做什么）。主线程只挂内存回调并起后台线程，建目录与开文件留到后台写线程执行。 */
     fun start(context: Context) {
+        val app = context.applicationContext ?: context
         synchronized(fileLock) {
-            if (dir != null) return
-            dir = File(context.filesDir, DIR).apply { mkdirs() }
-            openWriter()
+            if (appContext != null) return
+            appContext = app
         }
         // 先接上自己的日志，之后打的每一行都不再依赖 logcat。
         Log.sink = Log.Sink { priority, tag, message, error -> enqueue(priority, tag, message, error) }
@@ -107,16 +112,17 @@ internal object LogRecorder {
 
     /** 现有的日志文件，旧的在前。 */
     fun logFiles(): List<File> {
-        val d = dir ?: return emptyList()
+        val d = ensureDir() ?: return emptyList()
         return listOf(File(d, PREVIOUS), File(d, CURRENT)).filter { it.isFile }
     }
 
     /** 上次启动时读到的崩溃记录文件（没有就 null）。 */
-    fun crashFile(): File? = dir?.let { File(it, CRASH) }?.takeIf { it.isFile && it.length() > 0 }
+    fun crashFile(): File? = ensureDir()?.let { File(it, CRASH) }?.takeIf { it.isFile && it.length() > 0 }
 
     /** 把队列里和缓冲里还没写进文件的行写进去（导出前调）。 */
     fun flush() {
         synchronized(fileLock) {
+            ensureWriterLocked()
             writeQueued()
             flushQuietly()
         }
@@ -251,6 +257,7 @@ internal object LogRecorder {
 
     /** 调用时持有 [fileLock]。不 flush：由调用方按批 flush（写文件线程每批一次，读 logcat 批量一次，导出前一次）。 */
     private fun writeLine(line: String) {
+        ensureWriterLocked()
         if (liveListeners.isNotEmpty()) {
             for (listener in liveListeners) listener.onLine(line)
         }
@@ -285,9 +292,25 @@ internal object LogRecorder {
         return bytes
     }
 
+    private fun ensureDir(): File? {
+        dir?.let { return it }
+        val app = appContext ?: return null
+        return synchronized(fileLock) {
+            dir ?: File(app.filesDir, DIR).apply { mkdirs() }.also { dir = it }
+        }
+    }
+
+    /** 调用时持有 [fileLock]。 */
+    private fun ensureWriterLocked() {
+        if (writerInitialized) return
+        writerInitialized = true
+        ensureDir()
+        openWriter()
+    }
+
     /** 调用时持有 [fileLock]。 */
     private fun openWriter() {
-        val d = dir ?: return
+        val d = ensureDir() ?: return
         val file = File(d, CURRENT)
         written = if (file.isFile) file.length() else 0L
         if (written >= MAX_FILE_BYTES) return rotate()
@@ -301,7 +324,7 @@ internal object LogRecorder {
 
     /** 调用时持有 [fileLock]。 */
     private fun rotate() {
-        val d = dir ?: return
+        val d = ensureDir() ?: return
         try {
             writer?.close()
         } catch (e: IOException) {
@@ -320,7 +343,7 @@ internal object LogRecorder {
 
     /** 系统崩溃缓冲里本应用的记录（普通应用只读得到自己的）存进 [CRASH]，有上限。 */
     private fun saveCrashBuffer() {
-        val d = dir ?: return
+        val d = ensureDir() ?: return
         val out = StringBuilder()
         try {
             val process = ProcessBuilder("logcat", "-d", "-b", "crash", "-v", "threadtime").redirectErrorStream(true).start()

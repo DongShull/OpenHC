@@ -329,11 +329,7 @@ private fun AppRoot(
     wirelessStart: WirelessStartFlow,
 ) {
     val state by controller.state.collectAsState()
-    val decoder by controller.decoder.collectAsState()
-    val touchResets by controller.touchResets.collectAsState()
     val wState by wireless.state.collectAsState()
-    val wDecoder by wireless.decoder.collectAsState()
-    val wTouchResets by wireless.touchResets.collectAsState()
     val wirelessProjecting = wState.phase == WirelessPhase.PROJECTING
     var screen by rememberSaveable { mutableStateOf(Screen.HOME) }
     // 投屏页显示的是哪种连接的画面。
@@ -346,9 +342,11 @@ private fun AppRoot(
     var settingsOnEntry by remember { mutableStateOf<Map<PendingSetting, String>?>(null) }
     var reconnectReminder by remember { mutableStateOf<List<PendingSetting>>(emptyList()) }
     var reminderWhileProjecting by remember { mutableStateOf(false) }
-    val openSettings = {
-        settingsOnEntry = pendingSettingsSnapshot(context, settings)
-        screen = Screen.SETTINGS
+    val openSettings = remember(context, settings) {
+        {
+            settingsOnEntry = pendingSettingsSnapshot(context, settings)
+            screen = Screen.SETTINGS
+        }
     }
 
     LaunchedEffect(state.phase, state.attempt, wState.phase, wState.attempt) {
@@ -432,8 +430,12 @@ private fun AppRoot(
             SettingsScreen(settings, screenSpec, systemBluetooth, onBack = closeSettings)
         }
         Screen.PROJECTION -> if (projectionWireless) {
+            val wDecoder by wireless.decoder.collectAsState()
+            val wTouchResets by wireless.touchResets.collectAsState()
             ProjectionScreen(wState.projection, wDecoder, wTouchResets, onInput = wireless::sendInput)
         } else {
+            val decoder by controller.decoder.collectAsState()
+            val touchResets by controller.touchResets.collectAsState()
             ProjectionScreen(state, decoder, touchResets, onInput = controller::sendInput)
         }
     }

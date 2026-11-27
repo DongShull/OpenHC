@@ -49,6 +49,7 @@ import io.github.gcbond.openhc.wireless.WirelessPhase
 import io.github.gcbond.openhc.wireless.WirelessUiState
 
 /** 首页上和有线连接有关的操作。 */
+@androidx.compose.runtime.Immutable
 internal class HomeActions(
     val onStart: () -> Unit,
     val onStop: () -> Unit,
@@ -85,7 +86,7 @@ internal fun HomeScreen(
     val identityLoaded = identity is IdentityLoader.Result.Loaded
     // 设置是在设置页里改的，回到首页时首页重新组合，这里每次读到的都是新值。
     val wiredOnly = prefs.wiredOnly
-    val wiredState = wired.withoutIdentityNotice()
+    val wiredState = remember(wired) { wired.withoutIdentityNotice() }
     BoxWithConstraints(
         Modifier
             .fillMaxSize()

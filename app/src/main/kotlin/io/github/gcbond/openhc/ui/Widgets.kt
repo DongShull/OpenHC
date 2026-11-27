@@ -478,6 +478,7 @@ private const val INLINE_OPTIONS_MAX = 4
 private val INLINE_CHOICE_MIN = 560.dp
 
 /** [CardChoiceRow] 的一个选项：名称、一句话说明、可选的小标签（如「试验」）。 */
+@androidx.compose.runtime.Immutable
 internal class CardOption(val title: String, val text: String, val tag: String? = null)
 
 /**
@@ -555,7 +556,7 @@ internal fun CardChoiceRow(
                     label = "选项面板",
                 ) { index ->
                     val content = detail(index)
-                    if (content != null) OptionDetail(caretX, content) else Spacer(Modifier.fillMaxWidth())
+                    if (content != null) OptionDetail({ caretX }, content) else Spacer(Modifier.fillMaxWidth())
                 }
             }
         }
@@ -576,21 +577,21 @@ private val DETAIL_SCROLL_MARGIN = 64.dp
 
 /** 选中选项的设置面板：顶上的尖角加一块圆角面板，颜色和选中的卡片一样。 */
 @Composable
-private fun OptionDetail(caretX: Dp, content: @Composable ColumnScope.() -> Unit) {
+private fun OptionDetail(caretX: () -> Dp, content: @Composable ColumnScope.() -> Unit) {
+    val caret = remember { Path() }
     Column(Modifier.fillMaxWidth().padding(top = 6.dp)) {
         Spacer(
             Modifier
                 .fillMaxWidth()
                 .height(CARET_HEIGHT)
                 .drawBehind {
-                    val x = caretX.toPx()
+                    val x = caretX().toPx()
                     val half = CARET_HALF_WIDTH.toPx()
-                    val caret = Path().apply {
-                        moveTo(x - half, size.height)
-                        lineTo(x, 0f)
-                        lineTo(x + half, size.height)
-                        close()
-                    }
+                    caret.rewind()
+                    caret.moveTo(x - half, size.height)
+                    caret.lineTo(x, 0f)
+                    caret.lineTo(x + half, size.height)
+                    caret.close()
                     drawPath(caret, Palette.Tint)
                 },
         )

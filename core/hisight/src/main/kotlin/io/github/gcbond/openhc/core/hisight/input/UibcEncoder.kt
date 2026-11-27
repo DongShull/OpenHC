@@ -39,6 +39,12 @@ internal class UibcEncoder(
     private val sourceDeviceType: Int?,
 ) {
     private val cipher = AesCtr(sessionKey)
+    private val canTouchDown = "left_point_down" in events
+    private val canTouchUp = "left_point_up" in events
+    private val canTouchMove = "left_move" in events
+    private val canKeyDown = "left_key_down" in events
+    private val canKeyUp = "left_key_up" in events
+    private val canText = TEXT_VENDOR in vendors
     private var activeMask = 0
     private var minId = -1
     private var minX = 0
@@ -79,12 +85,12 @@ internal class UibcEncoder(
     }
 
     private fun touch(action: HiSightInput.Touch.Action, points: List<HiSightInput.Point>, width: Int, height: Int): ByteArray {
-        val event = when (action) {
-            HiSightInput.Touch.Action.DOWN -> "left_point_down"
-            HiSightInput.Touch.Action.UP -> "left_point_up"
-            HiSightInput.Touch.Action.MOVE -> "left_move"
+        val allowed = when (action) {
+            HiSightInput.Touch.Action.DOWN -> canTouchDown
+            HiSightInput.Touch.Action.UP -> canTouchUp
+            HiSightInput.Touch.Action.MOVE -> canTouchMove
         }
-        require(event in events) { "触摸事件未经本次协商允许" }
+        require(allowed) { "触摸事件未经本次协商允许" }
         require(width in 1..65535 && height in 1..65535) { "视频宽高必须是 1..65535" }
         val n = points.size
         require(n in 1..MAX_POINTS) { "触点数必须是 1..10" }
@@ -160,8 +166,8 @@ internal class UibcEncoder(
     }
 
     private fun key(action: HiSightInput.Key.Action, code: Int, meta: Long): ByteArray {
-        val event = if (action == HiSightInput.Key.Action.DOWN) "left_key_down" else "left_key_up"
-        require(event in events) { "按键未经本次协商允许" }
+        val allowed = if (action == HiSightInput.Key.Action.DOWN) canKeyDown else canKeyUp
+        require(allowed) { "按键未经本次协商允许" }
         require(code in 0..0xFFFF && meta in 0..0xFFFF_FFFFL) { "键码或修饰位超出范围" }
         require(sourceDeviceType == SOURCE_ANDROID_KEYS || (code in BASIC_KEY_CODES && meta == 0L)) {
             "手机没选源设备类型 7，只能发基础键、修饰位为 0"
@@ -180,7 +186,7 @@ internal class UibcEncoder(
     }
 
     private fun text(text: String): ByteArray {
-        require(TEXT_VENDOR in vendors) { "成文输入未经本次协商允许" }
+        require(canText) { "成文输入未经本次协商允许" }
         require('\u0000' !in text) { "成文输入不能含 NUL" }
         val raw = try {
             val encoder = Charsets.UTF_8.newEncoder()

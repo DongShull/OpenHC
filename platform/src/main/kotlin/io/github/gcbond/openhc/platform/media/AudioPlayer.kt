@@ -196,24 +196,26 @@ class AudioPlayer(
     fun queuePcm(data: ByteArray, offset: Int, length: Int, bigEndian: Boolean) {
         check(format.encoding == Encoding.PCM_16) { "这个播放器不是 PCM 的" }
         if (closed) return
-        val copy = PcmBytes.copyLittleEndian(data, offset, length, format.frameBytes, bigEndian)
-        if (copy.isEmpty()) return
-        queue.offer(copy, copy.size / format.frameBytes)
+        queue.offerPcm(data, offset, length, format.frameBytes, bigEndian)
     }
 
     /** 放一个 AAC 帧（一个 RTP 包的载荷，可以带 ADTS 头）。复制后入队，不阻塞。 */
     fun queueAac(data: ByteArray, offset: Int, length: Int) {
         check(format.encoding == Encoding.AAC) { "这个播放器不是 AAC 的" }
         if (closed || length <= 0) return
-        queue.offer(data.copyOfRange(offset, offset + length), AacConfig.SAMPLES_PER_FRAME)
+        queue.offerCopy(data, offset, length, AacConfig.SAMPLES_PER_FRAME)
     }
 
     /**
      * 这一路的音量（0 静音、1 原样），用来在失去音频焦点时压低或静音。任意线程调用，不阻塞；
-     * 播放线程在下一块数据前设到音轨上（音轨重建后也沿用）。
+     * 播放线程随即或下一块数据前设到音轨上（音轨重建后也沿用）。
      */
     fun setVolume(volume: Float) {
-        requestedVolume = volume.coerceIn(0f, 1f)
+        val clamped = volume.coerceIn(0f, 1f)
+        if (clamped != requestedVolume) {
+            requestedVolume = clamped
+            queue.wakeup()
+        }
     }
 
     /**
@@ -248,7 +250,7 @@ class AudioPlayer(
         try {
             ensureTrack(format.sampleRate, format.channels)
             while (!closed && !dead) {
-                val chunk = queue.take(POLL_MILLIS)
+                val chunk = queue.take(if (playing) POLL_MILLIS else IDLE_POLL_MILLIS)
                 applyVolume(false)
                 reportDrops()
                 if (chunk == null) {
@@ -256,9 +258,13 @@ class AudioPlayer(
                     if (playing) decoder?.let { drainQuietly(it, 0L) }
                     checkStarved()
                 } else {
-                    when (format.encoding) {
-                        Encoding.PCM_16 -> writePcm(chunk.data, 0, chunk.data.size)
-                        Encoding.AAC -> decode(chunk.data)
+                    try {
+                        when (format.encoding) {
+                            Encoding.PCM_16 -> writePcm(chunk.data, 0, chunk.length)
+                            Encoding.AAC -> decode(chunk.data, chunk.length)
+                        }
+                    } finally {
+                        queue.recycle(chunk)
                     }
                 }
                 // 这一块处理完再算：它已经在解码器或音轨里，不会漏算。
@@ -409,11 +415,12 @@ class AudioPlayer(
 
     private var decoderRate = 0
     private var decoderChannels = 0
+    private val adtsScratch = AacConfig.AdtsScratch()
 
-    private fun decode(unit: ByteArray) {
-        val adts = AacConfig.parseAdts(unit, 0, unit.size)
+    private fun decode(unit: ByteArray, length: Int) {
+        val adts = if (AacConfig.parseAdtsInto(unit, 0, length, adtsScratch)) adtsScratch else null
         val from = adts?.headerLength ?: 0
-        val to = adts?.frameLength ?: unit.size
+        val to = adts?.frameLength ?: length
         if (to <= from) return
         if (adts != null && decoder != null) {
             val ch = if (adts.channelConfig in 1..2) adts.channelConfig else format.channels
@@ -450,7 +457,7 @@ class AudioPlayer(
         }
     }
 
-    private fun createDecoder(adts: AacConfig.Adts?): MediaCodec? {
+    private fun createDecoder(adts: AacConfig.AdtsScratch?): MediaCodec? {
         if (decoderErrors >= MAX_DECODER_ERRORS) return null
         val csd = adts?.audioSpecificConfig() ?: AacConfig.audioSpecificConfig(format.sampleRate, format.channels)
         val rate = adts?.sampleRate ?: format.sampleRate
@@ -564,6 +571,7 @@ class AudioPlayer(
 
     private companion object {
         const val POLL_MILLIS = 10L
+        const val IDLE_POLL_MILLIS = 250L
         const val TAIL_FLUSH_MILLIS = 80L
         const val STALE_DISCARD_MILLIS = 2_500L
         const val LATENCY_REFRESH_NANOS = 250_000_000L

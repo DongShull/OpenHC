@@ -67,16 +67,6 @@ internal class TunInterface(private val descriptor: ParcelFileDescriptor) : Pack
 
     override fun read(buffer: ByteArray, offset: Int, maxLength: Int): Int {
         while (!woken) {
-            // 先试一次非阻塞直接读，有现成包时省掉一次 poll 系统调用。
-            try {
-                val fast = Os.read(fd, buffer, offset, maxLength)
-                return if (fast > 0) fast else -1
-            } catch (e: ErrnoException) {
-                if (e.errno == OsConstants.EINTR) continue
-                if (e.errno != OsConstants.EAGAIN) return -1
-            } catch (e: InterruptedIOException) {
-                return -1
-            }
             tunReadPoll.revents = 0
             wakeReadPoll.revents = 0
             val ready = try {

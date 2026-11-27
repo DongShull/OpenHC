@@ -123,7 +123,7 @@ internal fun AudioSettingsSection() {
 @Composable
 private fun FallbackRow(record: PcmPhoneRecord, onReset: () -> Unit) {
     val name = record.name ?: stringResource(R.string.settings_audio_fallback_unnamed)
-    val date = DateFormat.getDateInstance(DateFormat.SHORT).format(Date(record.updatedAtMillis))
+    val date = remember(record.updatedAtMillis) { DateFormat.getDateInstance(DateFormat.SHORT).format(Date(record.updatedAtMillis)) }
     Row(
         modifier = Modifier
             .fillMaxWidth()
@@ -157,7 +157,7 @@ private fun StreamRow(
     lowLatency: Boolean,
     onSelect: (Int) -> Unit,
 ) {
-    val context = LocalContext.current
+    val appContext = LocalContext.current.applicationContext
     val main = remember { Handler(Looper.getMainLooper()) }
     var previewing by remember { mutableStateOf(false) }
     var note by remember { mutableStateOf<PreviewNote?>(null) }
@@ -182,7 +182,7 @@ private fun StreamRow(
                         )
                         main.post {
                             previewing = false
-                            note = previewNote(context, result)
+                            note = previewNote(appContext, result)
                         }
                     }
                 },
@@ -219,7 +219,7 @@ private fun StreamChips(selected: Int, onSelect: (Int) -> Unit) {
             .selectableGroup(),
         horizontalArrangement = Arrangement.spacedBy(2.dp),
     ) {
-        items(choices) { value ->
+        items(choices, key = { it }) { value ->
             val on = value == selected
             Box(
                 Modifier

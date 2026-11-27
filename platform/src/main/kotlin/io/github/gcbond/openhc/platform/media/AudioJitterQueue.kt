@@ -34,14 +34,22 @@ class AudioJitterQueue(
     val staleDiscardMillis: Long = 0,
     private val clockNanos: () -> Long = System::nanoTime,
 ) {
-    class Chunk(val data: ByteArray, val frames: Int)
+    class Chunk(val data: ByteArray, val frames: Int) {
+        internal var length: Int = data.size
+        internal var pooled: Boolean = false
+    }
 
     private val lock = ReentrantLock()
     private val ready = lock.newCondition()
     private val chunks = ArrayDeque<Chunk>()
+    private val bytePool = ArrayDeque<ByteArray>(MAX_POOL_SIZE)
+
+    @Volatile
     private var buffered = 0L
     private var releasing = false
     private var closed = false
+
+    @Volatile
     private var dropped = 0L
     private var starved = 0
     private var trimmed = 0L
@@ -65,13 +73,13 @@ class AudioJitterQueue(
     }
 
     /** 还没被取走的帧数。 */
-    val bufferedFrames: Long get() = lock.withLock { buffered }
+    val bufferedFrames: Long get() = buffered
 
     /** 已经攒够、正在往外放（false 表示在攒数据）。 */
     val isReleasing: Boolean get() = lock.withLock { releasing }
 
     /** 因为积压丢掉的帧数（累计）。 */
-    val droppedFrames: Long get() = lock.withLock { dropped }
+    val droppedFrames: Long get() = dropped
 
     /** 放空、重新攒数据的次数（累计）。 */
     val starvations: Int get() = lock.withLock { starved }
@@ -92,6 +100,69 @@ class AudioJitterQueue(
         }
     }
 
+    /** 从池里借缓冲复制 `data[offset, offset + length)` 并入队，避免每包分配零填充 ByteArray。 */
+    internal fun offerCopy(data: ByteArray, offset: Int, length: Int, frames: Int): Long {
+        require(offset >= 0 && length > 0 && offset <= data.size - length) { "范围非法" }
+        require(frames > 0) { "帧数必须为正" }
+        val buf = borrowBuffer(length)
+        System.arraycopy(data, offset, buf, 0, length)
+        return offerPooled(buf, length, frames)
+    }
+
+    /** 从池里借缓冲转换 PCM 并入队。不足一帧时什么都不做。 */
+    internal fun offerPcm(data: ByteArray, offset: Int, length: Int, frameBytes: Int, bigEndian: Boolean): Long {
+        require(offset >= 0 && length >= 0 && offset <= data.size - length) { "范围非法" }
+        require(frameBytes > 0 && frameBytes % 2 == 0) { "帧长必须是正的偶数" }
+        val usable = length - length % frameBytes
+        if (usable <= 0) return 0L
+        val buf = borrowBuffer(usable)
+        PcmBytes.copyLittleEndianInto(data, offset, usable, bigEndian, buf)
+        return offerPooled(buf, usable, usable / frameBytes)
+    }
+
+    /** 播放线程用完一块后归还池化缓冲。 */
+    internal fun recycle(chunk: Chunk) {
+        if (!chunk.pooled) return
+        lock.withLock {
+            returnBufferLocked(chunk)
+        }
+    }
+
+    /** 唤醒等待中的播放线程（例如音量变化时立即应用）。 */
+    internal fun wakeup() {
+        lock.withLock {
+            ready.signalAll()
+        }
+    }
+
+    private fun borrowBuffer(minSize: Int): ByteArray {
+        val pooled = lock.withLock {
+            if (closed) null else bytePool.pollLast()
+        }
+        return if (pooled != null && pooled.size >= minSize) {
+            pooled
+        } else {
+            ByteArray(maxOf(minSize, MIN_POOLED_BYTES))
+        }
+    }
+
+    private fun offerPooled(buf: ByteArray, length: Int, frames: Int): Long {
+        val chunk = Chunk(buf, frames).also {
+            it.length = length
+            it.pooled = true
+        }
+        lock.withLock {
+            if (closed) return 0L
+            return add(chunk)
+        }
+    }
+
+    private fun returnBufferLocked(chunk: Chunk) {
+        if (chunk.pooled && !closed && bytePool.size < MAX_POOL_SIZE) {
+            bytePool.addLast(chunk.data)
+        }
+    }
+
     private fun add(chunk: Chunk): Long {
         val now = clockNanos()
         var droppedNow = 0L
@@ -100,9 +171,10 @@ class AudioJitterQueue(
         ) {
             droppedNow += buffered
             dropped += buffered
-            chunks.clear()
+            while (chunks.isNotEmpty()) returnBufferLocked(chunks.removeFirst())
             buffered = 0
         }
+        val wasEmpty = chunks.isEmpty()
         lastOfferAt = now
         chunks.addLast(chunk)
         val frames = chunk.frames
@@ -113,6 +185,7 @@ class AudioJitterQueue(
                 val old = chunks.removeFirst()
                 buffered -= old.frames
                 droppedNow += old.frames
+                returnBufferLocked(old)
             }
             dropped += droppedNow
         }
@@ -120,7 +193,7 @@ class AudioJitterQueue(
             releasing = true
             releasedAt = now
         }
-        if (releasing || tailFlushMillis > 0) ready.signalAll()
+        if (releasing || (wasEmpty && tailFlushMillis > 0)) ready.signalAll()
         return droppedNow
     }
 
@@ -185,6 +258,7 @@ class AudioJitterQueue(
             val oldest = chunks.removeFirst()
             buffered -= oldest.frames
             startTrimmed += oldest.frames
+            returnBufferLocked(oldest)
         }
     }
 
@@ -210,6 +284,7 @@ class AudioJitterQueue(
             trimmed += oldest.frames
             trims++
             droppedNow += oldest.frames
+            returnBufferLocked(oldest)
         }
         lastTrim = now
     }
@@ -219,9 +294,15 @@ class AudioJitterQueue(
         lock.withLock {
             closed = true
             chunks.clear()
+            bytePool.clear()
             buffered = 0
             ready.signalAll()
         }
+    }
+
+    private companion object {
+        const val MAX_POOL_SIZE = 64
+        const val MIN_POOLED_BYTES = 2048
     }
 }
 
@@ -235,17 +316,24 @@ object PcmBytes {
         require(offset >= 0 && length >= 0 && offset <= data.size - length) { "范围非法" }
         require(frameBytes > 0 && frameBytes % 2 == 0) { "帧长必须是正的偶数" }
         val usable = length - length % frameBytes
+        if (usable == 0) return EMPTY_PCM
         val copy = ByteArray(usable)
+        copyLittleEndianInto(data, offset, usable, bigEndian, copy)
+        return copy
+    }
+
+    internal fun copyLittleEndianInto(data: ByteArray, offset: Int, usable: Int, bigEndian: Boolean, out: ByteArray) {
         if (!bigEndian) {
-            System.arraycopy(data, offset, copy, 0, usable)
-            return copy
+            System.arraycopy(data, offset, out, 0, usable)
+            return
         }
         var i = 0
         while (i < usable) {
-            copy[i] = data[offset + i + 1]
-            copy[i + 1] = data[offset + i]
+            out[i] = data[offset + i + 1]
+            out[i + 1] = data[offset + i]
             i += 2
         }
-        return copy
     }
+
+    private val EMPTY_PCM = ByteArray(0)
 }

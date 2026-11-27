@@ -50,6 +50,7 @@ class CarHotspot(
 
     @Volatile
     private var stopped = false
+    private var cleanedUp = false
     private var deadline = 0L
     private var ready: LocalHotspot? = null
 
@@ -67,7 +68,7 @@ class CarHotspot(
             log("用车机自带热点（$settings）：${if (switch != null) "没开着就自动打开，再" else ""}找开着的热点网卡")
             switch?.let { open(it) }
             if (stopped) {
-                switch?.close()
+                cleanup()
                 return@post
             }
             deadline = now() + FIND_WAIT_MS
@@ -78,11 +79,15 @@ class CarHotspot(
     /** 停止并退出工作线程；自动打开的热点关掉。没找到热点、热点丢了时自己已经置了 [stopped]，这里照样要退线程。 */
     override fun stop() {
         stopped = true
-        handler.post {
-            handler.removeCallbacksAndMessages(null)
-            switch?.close()
-            thread.quitSafely()
-        }
+        handler.post { cleanup() }
+    }
+
+    private fun cleanup() {
+        if (cleanedUp) return
+        cleanedUp = true
+        handler.removeCallbacksAndMessages(null)
+        switch?.close()
+        thread.quitSafely()
     }
 
     private fun open(switch: CarHotspotSwitch) {
@@ -102,6 +107,7 @@ class CarHotspot(
             stopped = true
             val why = switchFailure?.let { "自动打开没成功（$it），" } ?: ""
             events.onFailed("没找到车机自带热点：${why}请先在车机设置里打开热点，再连接（等了 ${FIND_WAIT_MS / 1000} 秒）")
+            cleanup()
             return
         }
         val (iface, ip) = picked
@@ -131,6 +137,7 @@ class CarHotspot(
         if (current.localIp !in addresses) {
             stopped = true
             events.onLost("车机自带热点关了（网卡 ${current.interfaceName} 上没有地址了）")
+            cleanup()
             return
         }
         handler.postDelayed(watch, WATCH_MS)

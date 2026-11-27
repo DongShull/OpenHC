@@ -97,6 +97,7 @@ class RfcommClient(
         }
         if (client == null) {
             // 还在连：关掉它，connect 会抛异常退出（关闭后不再上报失败）。
+            writes.clear()
             pending?.let { closeQuietly(it) }
             return
         }
@@ -164,8 +165,12 @@ class RfcommClient(
     /** 按 [channel] 直连用的 socket；没给通道号或拿不到系统接口时返回 null（改按 SDP）。 */
     private fun openByChannel(device: BluetoothDevice): BluetoothSocket? {
         val ch = channel ?: return null
+        val method = insecureRfcommMethod
+        if (method == null) {
+            note("按通道号直连的系统接口不存在，改按 SDP 查 $uuid")
+            return null
+        }
         return try {
-            val method = BluetoothDevice::class.java.getMethod("createInsecureRfcommSocket", Int::class.javaPrimitiveType)
             (method.invoke(device, ch) as BluetoothSocket).also { note("按通道号 $ch 直连") }
         } catch (e: ReflectiveOperationException) {
             note("按通道号直连的系统接口用不了（${describe(e)}），改按 SDP 查 $uuid")
@@ -234,6 +239,16 @@ class RfcommClient(
         const val LINGER_MS = 200L
         const val READ_BUFFER_BYTES = 4096
         const val PEER_CLOSED_TEXT = "read return: -1"
+
+        val insecureRfcommMethod: java.lang.reflect.Method? by lazy {
+            try {
+                BluetoothDevice::class.java.getMethod("createInsecureRfcommSocket", Int::class.javaPrimitiveType)
+            } catch (_: ReflectiveOperationException) {
+                null
+            } catch (_: SecurityException) {
+                null
+            }
+        }
 
         fun daemon(name: String, body: () -> Unit) {
             val t = Thread(body, name)

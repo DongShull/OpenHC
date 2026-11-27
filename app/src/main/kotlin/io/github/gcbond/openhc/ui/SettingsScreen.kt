@@ -4,7 +4,7 @@ import androidx.compose.foundation.background
 import androidx.compose.foundation.layout.Arrangement
 import androidx.compose.foundation.layout.BoxWithConstraints
 import androidx.compose.foundation.layout.Column
-import androidx.compose.foundation.layout.ColumnScope
+import androidx.compose.foundation.layout.PaddingValues
 import androidx.compose.foundation.layout.Row
 import androidx.compose.foundation.layout.Spacer
 import androidx.compose.foundation.layout.fillMaxHeight
@@ -16,6 +16,8 @@ import androidx.compose.foundation.layout.size
 import androidx.compose.foundation.layout.systemBarsPadding
 import androidx.compose.foundation.layout.width
 import androidx.compose.foundation.layout.widthIn
+import androidx.compose.foundation.lazy.LazyColumn
+import androidx.compose.foundation.lazy.items
 import androidx.compose.foundation.rememberScrollState
 import androidx.compose.foundation.selection.selectable
 import androidx.compose.foundation.selection.selectableGroup
@@ -74,7 +76,7 @@ internal fun SettingsScreen(
         val compact = maxHeight < Dimens.CompactHeight
         val side = if (maxWidth >= Dimens.WIDE_PAGE_MIN) Dimens.PageSide else Dimens.PageSideNarrow
         val rail = maxWidth - side * 2 >= RAIL_MIN
-        val content: @Composable ColumnScope.(SettingsCategory) -> Unit = { category ->
+        val content: @Composable (SettingsCategory) -> Unit = { category ->
             CategoryContent(category, settings, screen, systemBluetoothAddress, wireless)
         }
         CompositionLocalProvider(LocalCompact provides compact) {
@@ -123,17 +125,20 @@ internal fun SettingsScreen(
                         color = Palette.Muted,
                         modifier = Modifier.padding(top = 8.dp),
                     )
-                    Column(
-                        Modifier
+                    LazyColumn(
+                        modifier = Modifier
                             .weight(1f)
                             .fillMaxWidth()
-                            .padding(top = 12.dp)
-                            .verticalScroll(rememberScrollState())
-                            .padding(bottom = 16.dp),
+                            .padding(top = 12.dp),
+                        contentPadding = PaddingValues(bottom = 16.dp),
                         verticalArrangement = Arrangement.spacedBy(if (compact) 12.dp else 20.dp),
                     ) {
-                        for (category in SettingsCategory.values()) content(category)
-                        VersionFooter()
+                        items(SettingsCategory.values(), key = { it.ordinal }) { category ->
+                            content(category)
+                        }
+                        item(key = "footer") {
+                            VersionFooter()
+                        }
                     }
                 }
             }

@@ -62,8 +62,7 @@ class AesCtr(key: ByteArray) {
                 (iv[ivOffset + 15].toLong() and 0xFF)
             val blocks = (length.toLong() + BLOCK_BYTES - 1) / BLOCK_BYTES
             if (low32 + blocks <= 0xFFFF_FFFFL) {
-                System.arraycopy(iv, ivOffset, ivScratch, 0, IV_BYTES)
-                ctr.init(Cipher.ENCRYPT_MODE, secretKey, IvParameterSpec(ivScratch))
+                ctr.init(Cipher.ENCRYPT_MODE, secretKey, IvParameterSpec(iv, ivOffset, IV_BYTES))
                 ctr.doFinal(input, inOffset, length, output, outOffset)
                 return
             }
@@ -140,7 +139,7 @@ class AesCtr(key: ByteArray) {
         const val IV_BYTES = 16
 
         private const val BLOCK_BYTES = 16
-        private const val FAST_CTR_MIN_BYTES = 64
+        private const val FAST_CTR_MIN_BYTES = 512
 
         /** 一次生成的密钥流长度，必须是块长的整数倍。 */
         private const val CHUNK_BYTES = 4096

@@ -24,6 +24,7 @@ internal class LiveLogBuffer(val maxLines: Int = DEFAULT_MAX_LINES) {
     private val lock = Any()
     private val pendingRaw = ArrayList<String>()
     private val entries = ArrayList<Entry>(maxLines.coerceAtMost(512))
+    private var cachedSnapshot: List<Entry> = emptyList()
     private var nextId = 1L
     private var clearEpoch = 0L
     private var notified = false
@@ -66,7 +67,7 @@ internal class LiveLogBuffer(val maxLines: Int = DEFAULT_MAX_LINES) {
         val epochBefore: Long
         synchronized(lock) {
             notified = false
-            if (pendingRaw.isEmpty()) return ArrayList(entries)
+            if (pendingRaw.isEmpty()) return cachedSnapshot
             batch = ArrayList(pendingRaw)
             pendingRaw.clear()
             epochBefore = clearEpoch
@@ -78,7 +79,7 @@ internal class LiveLogBuffer(val maxLines: Int = DEFAULT_MAX_LINES) {
         }
         synchronized(lock) {
             if (clearEpoch != epochBefore) {
-                return ArrayList(entries)
+                return cachedSnapshot
             }
             for ((text, kind) in processed) {
                 entries.add(Entry(nextId++, text, kind))
@@ -87,7 +88,9 @@ internal class LiveLogBuffer(val maxLines: Int = DEFAULT_MAX_LINES) {
             if (overflow > 0) {
                 entries.subList(0, overflow).clear()
             }
-            return ArrayList(entries)
+            val snapshot = ArrayList(entries)
+            cachedSnapshot = snapshot
+            return snapshot
         }
     }
 
@@ -97,6 +100,7 @@ internal class LiveLogBuffer(val maxLines: Int = DEFAULT_MAX_LINES) {
             clearEpoch++
             pendingRaw.clear()
             entries.clear()
+            cachedSnapshot = emptyList()
             notified = false
         }
     }

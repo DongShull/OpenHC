@@ -68,7 +68,7 @@ import java.io.File
 import java.io.IOException
 import java.security.SecureRandom
 import java.util.concurrent.CopyOnWriteArrayList
-import kotlin.concurrent.thread
+import androidx.compose.runtime.Stable
 import kotlinx.coroutines.flow.MutableStateFlow
 import kotlinx.coroutines.flow.StateFlow
 import kotlinx.coroutines.flow.asStateFlow
@@ -109,6 +109,7 @@ import kotlinx.coroutines.flow.update
  * 线程：调度在自己的 [HandlerThread] 上串行执行，公开方法可以在任意线程调用（[sendInput] 在主线程，直接投到协议线程）。
  * 日志标签 `OpenHC-Wireless`。
  */
+@Stable
 class WirelessController(
     context: Context,
     private val wiredActive: () -> Boolean,
@@ -131,10 +132,11 @@ class WirelessController(
     }
 
     private val app: Context = context.applicationContext ?: context
+    private val openHcApp: OpenHcApp? get() = app as? OpenHcApp
 
     /** 「连接时暂停车机 WiFi 扫描」；单元测试里没有应用对象时为 null。 */
-    private val scanPause: ScanPause? get() = (app as? OpenHcApp)?.scanPause
-    private val carHotspotAuto: CarHotspotAuto? get() = (app as? OpenHcApp)?.carHotspotAuto
+    private val scanPause: ScanPause? get() = openHcApp?.scanPause
+    private val carHotspotAuto: CarHotspotAuto? get() = openHcApp?.carHotspotAuto
     private val settings = AppSettings(app)
     private val worker = HandlerThread("OpenHC-Wireless").also { it.start() }
     private val handler = Handler(worker.looper)
@@ -464,9 +466,8 @@ class WirelessController(
     ) {
         if (attempt != null) return
         userStopped = false
-        // 熄火不一定结束进程：之前暂停的车机 WiFi 扫描没恢复成的，每次开始无线连接时补一次。
-        scanPause?.recover("开始无线连接")
-        carHotspotAuto?.recover("开始无线连接")
+        // 熄火不一定结束进程：之前暂停的车机 WiFi 扫描或自动打开的热点没恢复成的，有待恢复记号时才补一次。
+        openHcApp?.recoverAdbSwitchesIfNeeded("开始无线连接")
         if (wirelessPrefs.wiredOnly) return blocked(kind, WirelessNotice.WiredOnly, AutoHold.WIRED_ONLY)
         if (wiredActive()) return blocked(kind, WirelessNotice.WiredActive, AutoHold.WIRED_ACTIVE)
         // 本地热点安卓 8.0 起才有，更早的车机用不了无线。不要求车机 WiFi 开着：开热点时单射频车机自己的 WiFi 本来就会断。
@@ -580,7 +581,6 @@ class WirelessController(
         setAutoHold(null)
         apply(WirelessSignal.AttemptStarted(current.id, addressMismatch, autoReconnect = kind == Kind.AUTO, direct = directGroup))
         current.runner.start()
-        watchTermination(current)
     }
 
     /** 第 [id] 次连接用的「自动打开车机热点」：只关这次连接自己打开的。 */
@@ -810,17 +810,24 @@ class WirelessController(
     /**
      * 这台手机的经典蓝牙现在连没连着车机。用的是系统的隐藏接口（BluetoothDevice.isConnected），拿不到时返回 null（不知道）。
      */
-    private fun phoneConnected(adapter: BluetoothAdapter, address: String): Boolean? = try {
-        val device = adapter.getRemoteDevice(address)
-        (android.bluetooth.BluetoothDevice::class.java.getMethod("isConnected").invoke(device) as? Boolean).also {
-            Log.i(TAG, "手机蓝牙连着车机：$it（${MacText.mask(address)}）")
+    private fun phoneConnected(adapter: BluetoothAdapter, address: String): Boolean? {
+        val method = bluetoothIsConnectedMethod
+        if (method == null) {
+            Log.i(TAG, "查不到手机蓝牙连没连着（接口不可用）")
+            return null
         }
-    } catch (e: ReflectiveOperationException) {
-        Log.i(TAG, "查不到手机蓝牙连没连着（${e.javaClass.simpleName}）")
-        null
-    } catch (e: RuntimeException) {
-        Log.i(TAG, "查不到手机蓝牙连没连着（${e.javaClass.simpleName}）")
-        null
+        return try {
+            val device = adapter.getRemoteDevice(address)
+            (method.invoke(device) as? Boolean).also {
+                Log.i(TAG, "手机蓝牙连着车机：$it（${MacText.mask(address)}）")
+            }
+        } catch (e: ReflectiveOperationException) {
+            Log.i(TAG, "查不到手机蓝牙连没连着（${e.javaClass.simpleName}）")
+            null
+        } catch (e: RuntimeException) {
+            Log.i(TAG, "查不到手机蓝牙连没连着（${e.javaClass.simpleName}）")
+            null
+        }
     }
 
     /** 清单里「手机蓝牙连上」的入口：开关开着、没开只用数据线连接时启用。 */
@@ -1008,8 +1015,13 @@ class WirelessController(
         val runner: SocketRunner = SocketRunner(
             bridge,
             { event -> onProtocolEvent(this, event) },
-            SocketRunner.Options(threadName = "OpenHC-Wireless-$id", log = { Log.i(TAG, "[$id] 执行器：$it") }),
+            SocketRunner.Options(
+                threadName = "OpenHC-Wireless-$id",
+                log = { Log.i(TAG, "[$id] 执行器：$it") },
+                onTerminated = { post { onRunnerTerminated(this) } },
+            ),
         )
+        val videoOptions: VideoDecoder.Options = io.github.gcbond.openhc.settings.VideoPreferences(app).decoderOptions()
         val causes = WirelessEndTracker()
         var touchNegotiated = false
         var keyNegotiated = false
@@ -1142,7 +1154,7 @@ class WirelessController(
             if (current.tearingDown) return
             current.videoDecoder ?: VideoDecoder(
                 DecoderListener(current.id),
-                io.github.gcbond.openhc.settings.VideoPreferences(app).decoderOptions(),
+                current.videoOptions,
             ).also {
                 current.videoDecoder = it
                 current.sink.target = it
@@ -1159,20 +1171,6 @@ class WirelessController(
 
         override fun onDecoderUnavailable(detail: String) {
             post { if (attempt?.id == attemptId) apply(WirelessSignal.DecoderProblem(detail)) }
-        }
-    }
-
-    /** 执行器意外退出（不会有 Ended 事件）时也要能收尾：另开一个线程等它结束。 */
-    private fun watchTermination(current: Attempt) {
-        thread(name = "OpenHC-WirelessWatch-${current.id}", isDaemon = true) {
-            try {
-                while (!current.runner.awaitTermination(WATCH_SLICE_MS)) {
-                    // 一直等到执行器结束。
-                }
-            } catch (e: InterruptedException) {
-                return@thread
-            }
-            post { onRunnerTerminated(current) }
         }
     }
 
@@ -1216,7 +1214,7 @@ class WirelessController(
     private fun maybeFinish(current: Attempt) {
         if (current.finished || !current.tearingDown || !current.runner.isTerminated) return
         current.finished = true
-        scanPause?.sessionEnded(current.id)
+        openHcApp?.scanPauseIfCreated?.sessionEnded(current.id)
         // 兜底：广播、GATT、定时一样不留。
         current.beacon?.stop("兜底")
         if (current.beacon?.isClean == false) Log.e(TAG, "[${current.id}] 广播资源没有收干净")
@@ -1352,7 +1350,16 @@ class WirelessController(
 
         /** 广播序列号的取值个数（1 字节）。 */
         const val SEQUENCE_RANGE = 256
-        const val WATCH_SLICE_MS = 60_000L
         const val FOREGROUND_FAILED = "前台服务启动失败"
+
+        val bluetoothIsConnectedMethod: java.lang.reflect.Method? by lazy {
+            try {
+                android.bluetooth.BluetoothDevice::class.java.getMethod("isConnected")
+            } catch (_: ReflectiveOperationException) {
+                null
+            } catch (_: RuntimeException) {
+                null
+            }
+        }
     }
 }
