@@ -95,8 +95,8 @@ internal fun HomeScreen(
         val compact = maxHeight < Dimens.CompactHeight
         val side = if (maxWidth >= Dimens.WIDE_PAGE_MIN) Dimens.PageSide else Dimens.PageSideNarrow
         val wide = maxWidth - side * 2 >= WIDE_CARD_MIN
-        // 够高才让卡片撑满一屏（二维码按剩下的空间取大小）；竖屏小屏整页滚动。
-        val fill = wide || maxHeight >= maxWidth
+        // 够高才让卡片撑满一屏（二维码按剩下的空间取大小）；带鱼矮屏、上下分屏或竖屏小屏允许整页滚动防挤压裁切。
+        val fill = maxHeight >= 420.dp && (wide || maxHeight >= maxWidth)
         val gap = if (compact) 12.dp else 20.dp
         CompositionLocalProvider(LocalCompact provides compact) {
             Column(

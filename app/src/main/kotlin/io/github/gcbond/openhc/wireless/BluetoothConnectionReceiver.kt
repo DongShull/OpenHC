@@ -49,7 +49,11 @@ class BluetoothConnectionReceiver : BroadcastReceiver() {
         /** 按设置启用或停用清单里的这个接收器。立即生效，不影响正在运行的进程。 */
         fun sync(context: Context, enabled: Boolean) {
             val component = ComponentName(context, BluetoothConnectionReceiver::class.java)
-            val state = if (enabled) PackageManager.COMPONENT_ENABLED_STATE_ENABLED else PackageManager.COMPONENT_ENABLED_STATE_DEFAULT
+            val state = if (enabled) {
+                PackageManager.COMPONENT_ENABLED_STATE_ENABLED
+            } else {
+                PackageManager.COMPONENT_ENABLED_STATE_DISABLED
+            }
             try {
                 val pm = context.packageManager
                 if (pm.getComponentEnabledSetting(component) == state) return

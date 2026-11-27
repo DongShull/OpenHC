@@ -118,13 +118,15 @@ class AudioPlayer(
     }
 
     private val queue = AudioJitterQueue(
-        startFrames = tuning.startFrames(format.sampleRate),
+        startFrames = tuning.startFramesFor(usage, format.sampleRate),
         targetFrames = tuning.targetFrames(format.sampleRate),
         maxFrames = tuning.maxFrames(format.sampleRate),
         trimHoldMillis = tuning.trimHoldMillis.toLong(),
         trimSpacingMillis = tuning.trimSpacingMillis.toLong(),
         trimStepFrames = tuning.trimStepFrames(format.sampleRate),
         startWindowMillis = tuning.startWindowMillis.toLong(),
+        tailFlushMillis = TAIL_FLUSH_MILLIS,
+        staleDiscardMillis = STALE_DISCARD_MILLIS,
     )
 
     @Volatile
@@ -340,7 +342,7 @@ class AudioPlayer(
     /** 队列里的帧按输入采样率计；解码输出的采样率和输入不同时换算到音轨的采样率。 */
     private fun queuedFramesAtTrackRate(): Long {
         val frames = queue.bufferedFrames
-        return if (trackRate == format.sampleRate) frames else frames * trackRate / format.sampleRate
+        return if (format.encoding == Encoding.AAC || trackRate == format.sampleRate) frames else frames * trackRate / format.sampleRate
     }
 
     /** 写一段 16 位小端 PCM；没在放就先开始放（数据已经攒够了才会到这里）。 */
@@ -405,20 +407,32 @@ class AudioPlayer(
 
     // ---------------- AAC ----------------
 
+    private var decoderRate = 0
+    private var decoderChannels = 0
+
     private fun decode(unit: ByteArray) {
         val adts = AacConfig.parseAdts(unit, 0, unit.size)
         val from = adts?.headerLength ?: 0
         val to = adts?.frameLength ?: unit.size
         if (to <= from) return
+        if (adts != null && decoder != null) {
+            val ch = if (adts.channelConfig in 1..2) adts.channelConfig else format.channels
+            if (adts.sampleRate != decoderRate || ch != decoderChannels) {
+                decoder?.let { drainQuietly(it, OUTPUT_WAIT_US) }
+                releaseDecoder()
+            }
+        }
         val codec = decoder ?: createDecoder(adts) ?: return
         try {
+            drain(codec, 0L)
             val index = codec.dequeueInputBuffer(INPUT_TIMEOUT_US)
             if (index >= 0) {
                 val input: ByteBuffer = codec.getInputBuffer(index) ?: return
                 input.clear()
                 input.put(unit, from, to - from)
                 codec.queueInputBuffer(index, 0, to - from, presentationUs, 0)
-                presentationUs += AacConfig.SAMPLES_PER_FRAME * 1_000_000L / format.sampleRate
+                val stepRate = if (decoderRate > 0) decoderRate else format.sampleRate
+                presentationUs += AacConfig.SAMPLES_PER_FRAME * 1_000_000L / stepRate
                 decoderInFrames += AacConfig.SAMPLES_PER_FRAME
             }
             // 刚送进去的这一帧给解码器几毫秒解出来，马上写进音轨；否则它要在解码器里等下一包，起播缓冲白白少一截。
@@ -448,6 +462,8 @@ class AudioPlayer(
             codec.configure(mediaFormat, null, null, 0)
             codec.start()
             decoder = codec
+            decoderRate = rate
+            decoderChannels = channels
             codec
         } catch (e: Exception) {
             decoderFailed("建不起 AAC 解码器：${e.javaClass.simpleName}：${e.message}")
@@ -548,6 +564,8 @@ class AudioPlayer(
 
     private companion object {
         const val POLL_MILLIS = 10L
+        const val TAIL_FLUSH_MILLIS = 80L
+        const val STALE_DISCARD_MILLIS = 2_500L
         const val LATENCY_REFRESH_NANOS = 250_000_000L
 
         /** AudioTrack 里剩下不到这么多毫秒、队列又空着，就算放空。 */

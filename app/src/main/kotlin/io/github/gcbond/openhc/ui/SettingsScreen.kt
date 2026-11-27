@@ -175,7 +175,6 @@ private fun CategoryContent(
             WiredOnlySetting(wireless)
             WirelessModeSetting(wireless)
             BluetoothAddressSection(settings, systemBluetoothAddress)
-            LePairingSetting()
             UsbAutoConnectSettingsSection()
             RestoreWifiSetting()
         }

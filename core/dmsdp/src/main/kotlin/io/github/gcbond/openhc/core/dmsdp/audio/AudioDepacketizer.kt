@@ -375,14 +375,20 @@ internal class AudioDepacketizer(
      * 按一路声音（[AudioBus.lane]）记序号：每一路各自判断跳变。新出现的一路记一条诊断（不受诊断条数上限的限制，路数本身
      * 有上限）：带包尾路号的每一路都记，写明 SSRC 和它的路号；同一路里 SSRC 的路号变了也记一次。
      */
+    private var cachedLane = Long.MIN_VALUE
+    private var cachedLaneStats: LaneStats? = null
+
     private fun trackLane(lane: Long, ssrc: Long, sequence: Int, trailerBus: Long) {
-        val stats = lanes[lane]
+        val stats = if (lane == cachedLane && cachedLaneStats != null) cachedLaneStats else lanes[lane]
         if (stats == null) {
             if (lanes.size >= MAX_TRACKED_LANES) {
                 untrackedPackets++
                 return
             }
-            lanes[lane] = LaneStats(sequence, AudioBus.keyOf(ssrc))
+            val created = LaneStats(sequence, AudioBus.keyOf(ssrc))
+            lanes[lane] = created
+            cachedLane = lane
+            cachedLaneStats = created
             if (trailerBus >= 0) {
                 note(
                     "出现一路：${AudioBus.laneLabel(lane)}（包尾路号 $trailerBus；SSRC $ssrc，SSRC 里是" +
@@ -393,6 +399,8 @@ internal class AudioDepacketizer(
             }
             return
         }
+        cachedLane = lane
+        cachedLaneStats = stats
         if (!stats.keyChangeNoted && AudioBus.keyOf(ssrc) != stats.key) {
             stats.keyChangeNoted = true
             note(

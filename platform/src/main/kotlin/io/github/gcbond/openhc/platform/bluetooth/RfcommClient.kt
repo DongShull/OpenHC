@@ -63,6 +63,7 @@ class RfcommClient(
     private var closed = false
 
     private val writes = LinkedBlockingQueue<Any>()
+    private val writeDone = java.util.concurrent.CountDownLatch(1)
 
     @Volatile
     private var lastWriteAt = 0L
@@ -100,8 +101,16 @@ class RfcommClient(
             return
         }
         writes.add(CLOSE)
-        daemon("$threadName-close") {
-            sleepQuietly(FLUSH_LIMIT_MS)
+        if (writeDone.count > 0) {
+            daemon("$threadName-close") {
+                try {
+                    writeDone.await(FLUSH_LIMIT_MS, java.util.concurrent.TimeUnit.MILLISECONDS)
+                } catch (e: InterruptedException) {
+                    Thread.currentThread().interrupt()
+                }
+                closeQuietly(client)
+            }
+        } else {
             closeQuietly(client)
         }
     }
@@ -182,6 +191,8 @@ class RfcommClient(
         } catch (e: IOException) {
             if (isClosed()) return
             if (e.message?.contains(PEER_CLOSED_TEXT) == true) events.onClosed() else events.onConnectionError("读失败：${describe(e)}")
+        } finally {
+            writes.add(CLOSE)
         }
     }
 
@@ -201,8 +212,10 @@ class RfcommClient(
             if (!isClosed()) events.onConnectionError("写失败：${describe(e)}")
         } catch (e: InterruptedException) {
             Thread.currentThread().interrupt()
+        } finally {
+            closeQuietly(client)
+            writeDone.countDown()
         }
-        closeQuietly(client)
     }
 
     private fun failConnect(message: String) {

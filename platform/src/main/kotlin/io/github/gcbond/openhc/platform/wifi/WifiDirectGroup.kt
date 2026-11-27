@@ -485,6 +485,7 @@ class WifiDirectGroupOwner(
         stage = Stage.ENDED
         handler.removeCallbacks(poll)
         handler.removeCallbacks(watch)
+        releaseCellular()
         log("直连组没建成：$message")
         if (!stopped) events.onFailed(message)
     }
@@ -493,6 +494,7 @@ class WifiDirectGroupOwner(
         if (stage != Stage.READY) return fail(message)
         stage = Stage.ENDED
         handler.removeCallbacks(watch)
+        releaseCellular()
         log(message)
         if (!stopped) events.onLost(message)
     }

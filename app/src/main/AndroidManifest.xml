@@ -6,6 +6,8 @@
     <uses-permission android:name="android.permission.INTERNET" />
     <!-- 连接期间留在前台，切到后台不断（安卓 9 起要声明）。 -->
     <uses-permission android:name="android.permission.FOREGROUND_SERVICE" />
+    <!-- 投屏期间保持 CPU 与无线网卡低延迟唤醒，防止车机切后台或关屏听歌时 Wi-Fi 进省电休眠抖动断流。 -->
+    <uses-permission android:name="android.permission.WAKE_LOCK" />
     <!-- 安卓 14 起前台服务要按类型声明权限。 -->
     <uses-permission android:name="android.permission.FOREGROUND_SERVICE_CONNECTED_DEVICE" />
     <!--

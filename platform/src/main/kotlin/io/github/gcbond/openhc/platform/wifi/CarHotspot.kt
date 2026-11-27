@@ -48,7 +48,7 @@ class CarHotspot(
     private val thread = HandlerThread("OpenHC-CarHotspot").also { it.start() }
     private val handler = Handler(thread.looper)
 
-    // 以下只在工作线程上访问。
+    @Volatile
     private var stopped = false
     private var deadline = 0L
     private var ready: LocalHotspot? = null
@@ -63,9 +63,13 @@ class CarHotspot(
 
     override fun start() {
         handler.post {
+            if (stopped) return@post
             log("用车机自带热点（$settings）：${if (switch != null) "没开着就自动打开，再" else ""}找开着的热点网卡")
             switch?.let { open(it) }
-            if (stopped) return@post
+            if (stopped) {
+                switch?.close()
+                return@post
+            }
             deadline = now() + FIND_WAIT_MS
             find()
         }
@@ -73,8 +77,8 @@ class CarHotspot(
 
     /** 停止并退出工作线程；自动打开的热点关掉。没找到热点、热点丢了时自己已经置了 [stopped]，这里照样要退线程。 */
     override fun stop() {
+        stopped = true
         handler.post {
-            stopped = true
             handler.removeCallbacksAndMessages(null)
             switch?.close()
             thread.quitSafely()

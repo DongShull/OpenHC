@@ -606,7 +606,7 @@ class DmsdpSession(
     private inline fun audioQuietly(out: Outputs, block: () -> Unit) {
         try {
             block()
-        } catch (e: RuntimeException) {
+        } catch (e: Exception) {
             out.event(DmsdpEvent.AudioNote("音频处理出错（${e.javaClass.simpleName}：${e.message}），已忽略"))
         }
     }

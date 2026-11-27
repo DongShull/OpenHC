@@ -185,9 +185,14 @@ internal object LogRecorder {
                     val line = reader.readLine() ?: break
                     if (filterLines && !DiagnosticsReport.fromProcess(line, ownPid)) continue
                     if (DiagnosticsReport.writtenDirectly(line)) continue
+                    val more = try {
+                        reader.ready()
+                    } catch (_: IOException) {
+                        false
+                    }
                     synchronized(fileLock) {
                         writeLine(line)
-                        flushQuietly()
+                        if (!more) flushQuietly()
                     }
                 }
             }
@@ -204,7 +209,11 @@ internal object LogRecorder {
 
     private fun markLine(text: String): String = "===== ${now()} OpenHC 诊断记录：$text ====="
 
-    private fun now(): String = SimpleDateFormat("MM-dd HH:mm:ss.SSS", Locale.US).format(Date())
+    private val timeFormat = object : ThreadLocal<SimpleDateFormat>() {
+        override fun initialValue(): SimpleDateFormat = SimpleDateFormat("MM-dd HH:mm:ss.SSS", Locale.US)
+    }
+
+    private fun now(): String = timeFormat.get()!!.format(Date())
 
     /** 调用时持有 [fileLock]。 */
     private fun flushQuietly() {
@@ -215,17 +224,37 @@ internal object LogRecorder {
         }
     }
 
-    /** 调用时持有 [fileLock]。不 flush：由调用方按批 flush（写文件线程每批一次，读 logcat 每行一次，导出前一次）。 */
+    /** 调用时持有 [fileLock]。不 flush：由调用方按批 flush（写文件线程每批一次，读 logcat 批量一次，导出前一次）。 */
     private fun writeLine(line: String) {
         val w = writer ?: return
         try {
             w.write(line)
             w.write("\n")
-            written += line.toByteArray(Charsets.UTF_8).size + 1L
+            written += utf8ByteLength(line) + 1L
             if (written >= MAX_FILE_BYTES) rotate()
         } catch (e: IOException) {
             // 写满或者文件出问题：丢这一行，下一行再试。
         }
+    }
+
+    private fun utf8ByteLength(s: String): Int {
+        var bytes = 0
+        var i = 0
+        val len = s.length
+        while (i < len) {
+            val c = s[i].code
+            when {
+                c < 0x80 -> bytes += 1
+                c < 0x800 -> bytes += 2
+                c in 0xD800..0xDBFF && i + 1 < len && s[i + 1].code in 0xDC00..0xDFFF -> {
+                    bytes += 4
+                    i++
+                }
+                else -> bytes += 3
+            }
+            i++
+        }
+        return bytes
     }
 
     /** 调用时持有 [fileLock]。 */

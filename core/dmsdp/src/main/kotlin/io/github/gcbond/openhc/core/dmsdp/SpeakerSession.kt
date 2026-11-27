@@ -114,6 +114,8 @@ internal class SpeakerSession(
 
         /** 每一路（SSRC）上次放到的通道，用来在第一次出现、换通道时出一条事件。 */
         private val routed = HashMap<Long, AudioRoute>()
+        private var fastLane = Long.MIN_VALUE
+        private var fastRoute: AudioRoute? = null
 
         fun finish() {
             if (finished) return
@@ -130,7 +132,7 @@ internal class SpeakerSession(
         private inline fun parse(block: () -> Unit) {
             try {
                 block()
-            } catch (e: RuntimeException) {
+            } catch (e: Exception) {
                 broken = true
                 note(stream.info, "拆包出错（${e.javaClass.simpleName}：${e.message}），之后只交原始字节")
             }
@@ -150,9 +152,13 @@ internal class SpeakerSession(
             val route = router.route(packet.bus, packet.usage)
             packet.route = route
             // 按路记：同一个 SSRC 上可能有几路（包尾路号不同），各报一次，之后只在换通道时再报。
-            if (routed[packet.lane] != route && (routed.size < MAX_ROUTED_STREAMS || packet.lane in routed)) {
-                routed[packet.lane] = route
-                emit(AudioEvent.StreamRouted(stream.info, packet.ssrc, packet.bus, packet.usage, route))
+            if (packet.lane != fastLane || fastRoute != route) {
+                if (routed[packet.lane] != route && (routed.size < MAX_ROUTED_STREAMS || packet.lane in routed)) {
+                    routed[packet.lane] = route
+                    emit(AudioEvent.StreamRouted(stream.info, packet.ssrc, packet.bus, packet.usage, route))
+                }
+                fastLane = packet.lane
+                fastRoute = routed[packet.lane]
             }
             if (firstPacket) {
                 firstPacket = false

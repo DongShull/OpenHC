@@ -268,10 +268,10 @@ internal class AudioOutput(
         when (message.action) {
             PhoneAudioFocus.Action.REQUEST ->
                 controller.phoneRequested(usage, AudioFocusPolicy.Gain.ofPhoneFocusType(message.focusType))
-            PhoneAudioFocus.Action.ABANDON ->
-                if (message.split || usage != AudioUsage.MEDIA || route == null || route == AudioRoute.MEDIA) {
-                    controller.phoneAbandoned(usage)
-                }
+            PhoneAudioFocus.Action.ABANDON -> {
+                val transientOnly = !message.split && usage == AudioUsage.MEDIA && route != null && route != AudioRoute.MEDIA
+                controller.phoneAbandoned(usage, transientOnly = transientOnly)
+            }
             PhoneAudioFocus.Action.ABANDON_ALL -> controller.phoneAbandonedAll()
             PhoneAudioFocus.Action.POLICY, PhoneAudioFocus.Action.OTHER -> Unit
         }

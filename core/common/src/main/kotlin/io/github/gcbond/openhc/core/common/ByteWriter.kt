@@ -35,14 +35,20 @@ class ByteWriter(initialCapacity: Int = 64) {
     fun u32Be(value: Long): ByteWriter {
         require(value in 0..0xFFFF_FFFFL) { "u32 越界: $value" }
         ensure(4)
-        for (shift in intArrayOf(24, 16, 8, 0)) buf[size++] = (value ushr shift).toByte()
+        buf[size++] = (value ushr 24).toByte()
+        buf[size++] = (value ushr 16).toByte()
+        buf[size++] = (value ushr 8).toByte()
+        buf[size++] = value.toByte()
         return this
     }
 
     fun u32Le(value: Long): ByteWriter {
         require(value in 0..0xFFFF_FFFFL) { "u32 越界: $value" }
         ensure(4)
-        for (shift in intArrayOf(0, 8, 16, 24)) buf[size++] = (value ushr shift).toByte()
+        buf[size++] = value.toByte()
+        buf[size++] = (value ushr 8).toByte()
+        buf[size++] = (value ushr 16).toByte()
+        buf[size++] = (value ushr 24).toByte()
         return this
     }
 

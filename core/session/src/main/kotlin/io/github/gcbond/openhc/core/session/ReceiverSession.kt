@@ -422,7 +422,7 @@ class ReceiverSession internal constructor(
         val out = Out()
         try {
             handleDmsdp(layer.sendMicAudio(data, offset, length, nowMillis), out)
-        } catch (e: RuntimeException) {
+        } catch (e: Exception) {
             diag(SessionLayer.DMSDP, "麦克风送声音出错（${describe(e)}），已忽略", out)
         }
         return out.list

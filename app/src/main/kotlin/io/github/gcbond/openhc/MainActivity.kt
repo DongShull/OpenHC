@@ -124,6 +124,17 @@ class MainActivity : ComponentActivity() {
     override fun onResume() {
         super.onResume()
         CarHome.attach(this)
+        measureNavigationBar()
+    }
+
+    override fun onConfigurationChanged(newConfig: android.content.res.Configuration) {
+        super.onConfigurationChanged(newConfig)
+        Palette.themeMode = settings.themeMode
+        Palette.dark = settings.resolveDark(this)
+        measureNavigationBar()
+    }
+
+    private fun measureNavigationBar() {
         // 记下底部导航栏的实际高度（不管此刻显不显示），「全屏显示」关时按它让出画面、算声明尺寸。
         window.decorView.post {
             val insets = androidx.core.view.ViewCompat.getRootWindowInsets(window.decorView) ?: return@post
@@ -150,7 +161,8 @@ class MainActivity : ComponentActivity() {
     override fun onCreate(savedInstanceState: Bundle?) {
         super.onCreate(savedInstanceState)
         settings = AppSettings(this)
-        Palette.dark = settings.darkTheme
+        Palette.themeMode = settings.themeMode
+        Palette.dark = settings.resolveDark(this)
         val identity = IdentityLoader.load(this)
         val actions = HomeActions(
             onStart = { requestStart(StartKind.START) },
@@ -379,26 +391,30 @@ private fun AppRoot(
         if (screen == Screen.SETTINGS) closeSettings() else screen = Screen.HOME
     }
 
+    val wirelessActions = remember(wirelessStart, wireless, openSettings, wirelessProjecting) {
+        WirelessActions(
+            onStart = wirelessStart::start,
+            onStop = wireless::stop,
+            onShowProjection = {
+                if (wirelessProjecting) {
+                    projectionWireless = true
+                    screen = Screen.PROJECTION
+                }
+            },
+            onOpenSettings = openSettings,
+            onOpenAppSettings = wirelessStart::openAppSettings,
+            onEnableBluetooth = wirelessStart::requestEnableBluetooth,
+            onResetTrustStore = wireless::resetTrustStoreAndStart,
+        )
+    }
+
     when (screen) {
         Screen.HOME -> HomeScreen(
             wired = state,
             wireless = wState,
             identity = identity,
             actions = actions,
-            wirelessActions = WirelessActions(
-                onStart = wirelessStart::start,
-                onStop = wireless::stop,
-                onShowProjection = {
-                    if (wirelessProjecting) {
-                        projectionWireless = true
-                        screen = Screen.PROJECTION
-                    }
-                },
-                onOpenSettings = openSettings,
-                onOpenAppSettings = wirelessStart::openAppSettings,
-                onEnableBluetooth = wirelessStart::requestEnableBluetooth,
-                onResetTrustStore = wireless::resetTrustStoreAndStart,
-            ),
+            wirelessActions = wirelessActions,
             onShowProjection = {
                 if (state.phase == Phase.PROJECTING) {
                     projectionWireless = false
@@ -408,7 +424,10 @@ private fun AppRoot(
             onOpenSettings = openSettings,
         )
         Screen.SETTINGS -> {
-            val screenSpec = remember { io.github.gcbond.openhc.connection.DisplayArea.screenFor(context, settings.fullScreen) }
+            val configuration = androidx.compose.ui.platform.LocalConfiguration.current
+            val screenSpec = remember(configuration, settings.fullScreen) {
+                io.github.gcbond.openhc.connection.DisplayArea.screenFor(context, settings.fullScreen)
+            }
             val systemBluetooth = remember { DeviceInfo.systemBluetoothAddress() }
             SettingsScreen(settings, screenSpec, systemBluetooth, onBack = closeSettings)
         }

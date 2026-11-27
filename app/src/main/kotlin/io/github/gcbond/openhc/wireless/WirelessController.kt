@@ -1140,7 +1140,10 @@ class WirelessController(
     private fun prepareDecoder(current: Attempt, video: VideoParameters) {
         val decoder = synchronized(current.decoderLock) {
             if (current.tearingDown) return
-            current.videoDecoder ?: VideoDecoder(DecoderListener(current.id)).also {
+            current.videoDecoder ?: VideoDecoder(
+                DecoderListener(current.id),
+                io.github.gcbond.openhc.settings.VideoPreferences(app).decoderOptions(),
+            ).also {
                 current.videoDecoder = it
                 current.sink.target = it
                 mutableDecoder.value = it

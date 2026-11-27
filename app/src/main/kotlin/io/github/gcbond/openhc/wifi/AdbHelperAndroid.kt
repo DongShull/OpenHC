@@ -1,7 +1,7 @@
 package io.github.gcbond.openhc.wifi
 
 import android.content.Context
-import android.util.Log
+import io.github.gcbond.openhc.platform.log.Log
 import io.github.gcbond.openhc.core.common.adb.AdbAuth
 import io.github.gcbond.openhc.core.common.adb.AdbClient
 import java.io.BufferedInputStream

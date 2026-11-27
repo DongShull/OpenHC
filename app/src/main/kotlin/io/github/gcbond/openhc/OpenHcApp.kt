@@ -64,10 +64,21 @@ class OpenHcApp : Application() {
         }
         // 「补全手机蓝牙配对」上次没改回去的车机蓝牙名称（进程中途没了）：现在改回去，蓝牙关着就等它打开。
         LePairingNames.restoreIfNeeded(this, "应用启动")
-        // 上次暂停了车机 WiFi 扫描、没来得及恢复（进程中途没了）：现在恢复。
-        scanPause.recover("应用启动")
-        // 上次自动打开的车机热点没来得及关：现在关掉。
-        carHotspotAuto.recover("应用启动")
+        // 只有上次确实留下了待恢复记号时才初始化工作线程执行恢复，避免常驻两条空闲线程池。
+        if (io.github.gcbond.openhc.wifi.ScanPausePreferences(this).pending) {
+            scanPause.recover("应用启动")
+        }
+        if (io.github.gcbond.openhc.wifi.CarHotspotAutoPreferences(this).pending) {
+            carHotspotAuto.recover("应用启动")
+        }
+        // 后台预热曲线预计算表，避免开机首次握手认证时卡顿数百毫秒。
+        Thread({
+            try {
+                io.github.gcbond.openhc.core.auth.KotlinAccessoryAuthenticator.warmUp()
+            } catch (_: Throwable) {
+                // 预热失败不影响后续连接。
+            }
+        }, "OpenHC-CryptoWarmUp").apply { isDaemon = true }.start()
     }
 
     private companion object {

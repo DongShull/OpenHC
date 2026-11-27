@@ -24,8 +24,11 @@ import androidx.compose.ui.unit.sp
  * 所以只能在组合、布局、绘制时读，不要存进 remember 或顶层常量。
  */
 internal object Palette {
-    /** 当前是不是深色。由 [MainActivity][io.github.gcbond.openhc.MainActivity] 按设置写入，[ThemeToggle] 切换。 */
+    /** 当前是不是深色。由 [MainActivity][io.github.gcbond.openhc.MainActivity] 按设置和车机夜间模式写入，[ThemeToggle] 切换。 */
     var dark by mutableStateOf(true)
+
+    /** 当前选中的主题档位（0 自动跟随车机、1 浅色、2 深色）。 */
+    var themeMode by mutableStateOf(0)
 
     private fun pick(dark: Long, light: Long) = Color(if (this.dark) dark else light)
 
@@ -136,70 +139,62 @@ internal object UiType {
     fun chevron(compact: Boolean) = base.copy(fontSize = if (compact) 18.sp else 20.sp)
 }
 
-/**
- * 全应用的主题：按 [Palette.dark] 用深色或浅色。还在用的 Material 组件（输入框、弹框）从这里取色：
- * 主色是开关蓝，「错误」用提醒用的琥珀色，和自己画的控件一致。
- */
-@Composable
-internal fun OpenHcTheme(content: @Composable () -> Unit) {
-    val colors = if (Palette.dark) {
-        darkColorScheme(
-            primary = Palette.On,
-            onPrimary = Palette.OnAccent,
-            primaryContainer = Palette.On,
-            onPrimaryContainer = Palette.OnAccent,
-            secondary = Palette.Accent,
-            onSecondary = Palette.Background,
-            tertiary = Palette.Accent,
-            background = Palette.Background,
-            onBackground = Palette.Text,
-            surface = Palette.Background,
-            onSurface = Palette.Text,
-            surfaceVariant = Palette.Raised,
-            onSurfaceVariant = Palette.Muted,
-            surfaceContainerLowest = Palette.Background,
-            surfaceContainerLow = Palette.Raised,
-            surfaceContainer = Palette.Raised,
-            surfaceContainerHigh = Palette.Raised,
-            surfaceContainerHighest = Palette.Raised,
-            outline = Palette.Muted,
-            outlineVariant = Palette.SwitchOff,
-            error = Palette.Warn,
-            onError = Palette.Background,
-            errorContainer = Palette.Warn,
-            onErrorContainer = Palette.Background,
-        )
-    } else {
-        lightColorScheme(
-            primary = Palette.On,
-            onPrimary = Palette.OnAccent,
-            primaryContainer = Palette.On,
-            onPrimaryContainer = Palette.OnAccent,
-            secondary = Palette.Accent,
-            onSecondary = Palette.Card,
-            tertiary = Palette.Accent,
-            background = Palette.Background,
-            onBackground = Palette.Text,
-            surface = Palette.Card,
-            onSurface = Palette.Text,
-            surfaceVariant = Palette.Button,
-            onSurfaceVariant = Palette.Muted,
-            surfaceContainerLowest = Palette.Card,
-            surfaceContainerLow = Palette.Card,
-            surfaceContainer = Palette.Card,
-            surfaceContainerHigh = Palette.Card,
-            surfaceContainerHighest = Palette.Button,
-            outline = Palette.Muted,
-            outlineVariant = Palette.SwitchOff,
-            error = Palette.Warn,
-            onError = Palette.Card,
-            errorContainer = Palette.WarnBackground,
-            onErrorContainer = Palette.Warn,
-        )
-    }
-    // 中文不加字距；其余沿用默认字号。
-    val d = Typography()
-    val typography = Typography(
+private val DarkColorScheme = darkColorScheme(
+    primary = Color(0xFF2563EB),
+    onPrimary = Color.White,
+    primaryContainer = Color(0xFF2563EB),
+    onPrimaryContainer = Color.White,
+    secondary = Color(0xFF7FB0FF),
+    onSecondary = Color(0xFF0D1117),
+    tertiary = Color(0xFF7FB0FF),
+    background = Color(0xFF0D1117),
+    onBackground = Color(0xFFF0F3F7),
+    surface = Color(0xFF0D1117),
+    onSurface = Color(0xFFF0F3F7),
+    surfaceVariant = Color(0xFF1E2530),
+    onSurfaceVariant = Color(0xFFA0A9B8),
+    surfaceContainerLowest = Color(0xFF0D1117),
+    surfaceContainerLow = Color(0xFF1E2530),
+    surfaceContainer = Color(0xFF1E2530),
+    surfaceContainerHigh = Color(0xFF1E2530),
+    surfaceContainerHighest = Color(0xFF1E2530),
+    outline = Color(0xFFA0A9B8),
+    outlineVariant = Color(0xFF3A4352),
+    error = Color(0xFFF4B740),
+    onError = Color(0xFF0D1117),
+    errorContainer = Color(0xFFF4B740),
+    onErrorContainer = Color(0xFF0D1117),
+)
+
+private val LightColorScheme = lightColorScheme(
+    primary = Color(0xFF2563EB),
+    onPrimary = Color.White,
+    primaryContainer = Color(0xFF2563EB),
+    onPrimaryContainer = Color.White,
+    secondary = Color(0xFF1D4ED8),
+    onSecondary = Color.White,
+    tertiary = Color(0xFF1D4ED8),
+    background = Color(0xFFF2F4F7),
+    onBackground = Color(0xFF0F172A),
+    surface = Color.White,
+    onSurface = Color(0xFF0F172A),
+    surfaceVariant = Color(0xFFE8ECF1),
+    onSurfaceVariant = Color(0xFF556070),
+    surfaceContainerLowest = Color.White,
+    surfaceContainerLow = Color.White,
+    surfaceContainer = Color.White,
+    surfaceContainerHigh = Color.White,
+    surfaceContainerHighest = Color(0xFFE8ECF1),
+    outline = Color(0xFF556070),
+    outlineVariant = Color(0xFFCBD2DC),
+    error = Color(0xFF9A6200),
+    onError = Color.White,
+    errorContainer = Color(0xFFFFF6E0),
+    onErrorContainer = Color(0xFF9A6200),
+)
+
+private val OpenHcTypography: Typography = Typography().let { d ->
+    Typography(
         bodyLarge = d.bodyLarge.copy(letterSpacing = 0.sp),
         bodyMedium = d.bodyMedium.copy(letterSpacing = 0.sp),
         bodySmall = d.bodySmall.copy(letterSpacing = 0.sp),
@@ -209,5 +204,14 @@ internal fun OpenHcTheme(content: @Composable () -> Unit) {
         titleMedium = d.titleMedium.copy(letterSpacing = 0.sp),
         titleSmall = d.titleSmall.copy(letterSpacing = 0.sp),
     )
-    MaterialTheme(colorScheme = colors, typography = typography, content = content)
+}
+
+/**
+ * 全应用的主题：按 [Palette.dark] 用深色或浅色。还在用的 Material 组件（输入框、弹框）从这里取色：
+ * 主色是开关蓝，「错误」用提醒用的琥珀色，和自己画的控件一致。
+ */
+@Composable
+internal fun OpenHcTheme(content: @Composable () -> Unit) {
+    val colors = if (Palette.dark) DarkColorScheme else LightColorScheme
+    MaterialTheme(colorScheme = colors, typography = OpenHcTypography, content = content)
 }

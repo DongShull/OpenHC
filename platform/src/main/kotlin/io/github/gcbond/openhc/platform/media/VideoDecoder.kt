@@ -293,7 +293,7 @@ class VideoDecoder @JvmOverloads constructor(
     var lastStats: VideoStats? = null
         private set
 
-    private val thread = HandlerThread("OpenHC-VideoDecoder").also { it.start() }
+    private val thread = HandlerThread("OpenHC-VideoDecoder", android.os.Process.THREAD_PRIORITY_URGENT_DISPLAY).also { it.start() }
     private val handler = Handler(thread.looper)
     private val codecCallback = CodecCallback()
     private val renderListener = MediaCodec.OnFrameRenderedListener { c, _, _ ->
@@ -791,6 +791,7 @@ class VideoDecoder @JvmOverloads constructor(
             gridLogged = true
             Log.i(TAG, "拿到刷新节拍：周期 ${vsyncGrid.periodNs}ns，送显提前量 ${deadlineNs()}ns，上屏节拍${if (framePacing) "开" else "关"}")
         }
+        if (pacer.queued > 0) onHeldDue()
         if (now - lastShowNs < VSYNC_IDLE_NS) requestVsync()
     }
 

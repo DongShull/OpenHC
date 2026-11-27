@@ -28,6 +28,10 @@ class AudioJitterQueue(
     val trimSpacingMillis: Long = 200,
     val trimStepFrames: Int = 1,
     val startWindowMillis: Long = 0,
+    /** 未达起播门槛但超过这么久没再来新包时直接放行（防短语音/尾音被吞）；0 表示关闭。 */
+    val tailFlushMillis: Long = 0,
+    /** 未起播状态下残留数据静置超过这么久，再来新包时先丢弃陈旧残留防串播；0 表示关闭。 */
+    val staleDiscardMillis: Long = 0,
     private val clockNanos: () -> Long = System::nanoTime,
 ) {
     class Chunk(val data: ByteArray, val frames: Int)
@@ -50,11 +54,13 @@ class AudioJitterQueue(
     /** 取走之后仍高于目标是从什么时候开始的；不高于目标时为 null。 */
     private var aboveSince: Long? = null
     private var lastTrim: Long? = null
+    private var lastOfferAt: Long = 0L
 
     init {
         require(startFrames > 0) { "起播门槛必须为正" }
         require(startFrames <= targetFrames && targetFrames <= maxFrames) { "要求 起播门槛 ≤ 目标 ≤ 上限" }
         require(trimHoldMillis >= 0 && trimSpacingMillis >= 0 && startWindowMillis >= 0) { "削峰的时间不能为负" }
+        require(tailFlushMillis >= 0 && staleDiscardMillis >= 0) { "尾包排空与陈旧丢弃时间不能为负" }
         require(trimStepFrames > 0) { "每次削峰的帧数必须为正" }
     }
 
@@ -87,10 +93,20 @@ class AudioJitterQueue(
     }
 
     private fun add(chunk: Chunk): Long {
+        val now = clockNanos()
+        var droppedNow = 0L
+        if (!releasing && chunks.isNotEmpty() && staleDiscardMillis > 0 &&
+            now - lastOfferAt >= TimeUnit.MILLISECONDS.toNanos(staleDiscardMillis)
+        ) {
+            droppedNow += buffered
+            dropped += buffered
+            chunks.clear()
+            buffered = 0
+        }
+        lastOfferAt = now
         chunks.addLast(chunk)
         val frames = chunk.frames
         buffered += frames
-        var droppedNow = 0L
         if (buffered > maxFrames) {
             // 从最旧的丢起，至少留下刚放进来的这一块。
             while (buffered > targetFrames && chunks.size > 1) {
@@ -102,9 +118,9 @@ class AudioJitterQueue(
         }
         if (!releasing && buffered >= startFrames) {
             releasing = true
-            releasedAt = clockNanos()
+            releasedAt = now
         }
-        if (releasing) ready.signalAll()
+        if (releasing || tailFlushMillis > 0) ready.signalAll()
         return droppedNow
     }
 
@@ -115,7 +131,16 @@ class AudioJitterQueue(
     fun take(timeoutMillis: Long): Chunk? {
         lock.withLock {
             var waitNanos = TimeUnit.MILLISECONDS.toNanos(timeoutMillis.coerceAtLeast(0))
+            val tailFlushNanos = TimeUnit.MILLISECONDS.toNanos(tailFlushMillis)
             while (!closed) {
+                if (!releasing && chunks.isNotEmpty() && tailFlushNanos > 0) {
+                    val now = clockNanos()
+                    val sinceLastOffer = now - lastOfferAt
+                    if (sinceLastOffer >= tailFlushNanos) {
+                        releasing = true
+                        releasedAt = now
+                    }
+                }
                 if (releasing && chunks.isNotEmpty()) {
                     trimStartBurst()
                     val chunk = chunks.removeFirst()
@@ -124,7 +149,16 @@ class AudioJitterQueue(
                     return chunk
                 }
                 if (waitNanos <= 0) return null
-                waitNanos = ready.awaitNanos(waitNanos)
+                val stepWait = if (!releasing && chunks.isNotEmpty() && tailFlushNanos > 0) {
+                    val remain = (tailFlushNanos - (clockNanos() - lastOfferAt)).coerceAtLeast(1L)
+                    minOf(waitNanos, remain)
+                } else {
+                    waitNanos
+                }
+                val before = clockNanos()
+                val left = ready.awaitNanos(stepWait)
+                val spent = if (stepWait == waitNanos) waitNanos - left.coerceAtLeast(0L) else (clockNanos() - before).coerceAtLeast(1L)
+                waitNanos -= spent
             }
             return null
         }

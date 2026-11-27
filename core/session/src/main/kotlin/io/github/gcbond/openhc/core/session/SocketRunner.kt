@@ -10,6 +10,7 @@ import java.net.InetSocketAddress
 import java.net.ServerSocket
 import java.net.Socket
 import java.util.concurrent.ArrayBlockingQueue
+import java.util.concurrent.ConcurrentHashMap
 import java.util.concurrent.CountDownLatch
 import java.util.concurrent.LinkedBlockingQueue
 import java.util.concurrent.TimeUnit
@@ -102,11 +103,18 @@ class SocketRunner(
         }
     }
 
+    private sealed class WriteItem {
+        class Bytes(val data: ByteArray) : WriteItem()
+        object End : WriteItem()
+    }
+
     private abstract class Resource(val id: Int) {
         /** 先置位再关 socket：读线程据此知道异常是本机关闭造成的，不再上报。 */
         val closed = AtomicBoolean(false)
 
-        fun close() {
+        open fun close() = forceClose()
+
+        fun forceClose() {
             if (closed.compareAndSet(false, true)) closeSocket()
         }
 
@@ -117,13 +125,80 @@ class SocketRunner(
         override fun closeSocket() = closeQuietly(server)
     }
 
-    private class ConnectionResource(id: Int, val socket: Socket, buffers: Int, size: Int) : Resource(id) {
+    private inner class ConnectionResource(
+        id: Int,
+        val channel: SessionChannel,
+        val socket: Socket,
+        buffers: Int,
+        size: Int,
+    ) : Resource(id) {
         val pool = BufferPool(buffers, size)
+        private val writeQueue = ArrayBlockingQueue<WriteItem>(MAX_QUEUED_WRITES)
+        private val writerStarted = AtomicBoolean(false)
+
+        fun enqueueWrite(bytes: ByteArray): Boolean {
+            if (closed.get()) return true
+            if (writerStarted.compareAndSet(false, true)) {
+                val writer = newThread(channel, id) { writeLoop() }
+                val keep = synchronized(lock) {
+                    if (!closingAll) threads += writer
+                    !closingAll
+                }
+                if (keep) writer.start() else return true
+            }
+            return writeQueue.offer(WriteItem.Bytes(bytes))
+        }
+
+        override fun close() {
+            if (abandoned || !writerStarted.get()) {
+                forceClose()
+                return
+            }
+            if (!writeQueue.offer(WriteItem.End)) forceClose()
+        }
+
+        private fun writeLoop() {
+            val out = try {
+                socket.getOutputStream()
+            } catch (e: IOException) {
+                if (!closed.get()) post(Input.Failed(id, "取输出流失败：${describe(e)}"))
+                forceClose()
+                return
+            }
+            while (!abandoned) {
+                val item = try {
+                    writeQueue.poll(POOL_WAIT_MILLIS, TimeUnit.MILLISECONDS)
+                } catch (e: InterruptedException) {
+                    break
+                }
+                if (item == null) {
+                    if (closed.get()) break
+                    continue
+                }
+                when (item) {
+                    is WriteItem.Bytes -> {
+                        if (closed.get()) break
+                        try {
+                            out.write(item.data)
+                        } catch (e: IOException) {
+                            if (!closed.get()) {
+                                post(Input.Failed(id, "写 ${item.data.size} 字节失败：${describe(e)}"))
+                            }
+                            break
+                        }
+                    }
+                    WriteItem.End -> break
+                }
+            }
+            forceClose()
+        }
+
         override fun closeSocket() = closeQuietly(socket)
     }
 
     private class UdpResource(id: Int, val socket: DatagramSocket, buffers: Int, size: Int) : Resource(id) {
         val pool = BufferPool(buffers, size)
+        val recvPacket = DatagramPacket(ByteArray(0), 0)
         override fun closeSocket() = closeQuietly(socket)
     }
 
@@ -133,7 +208,8 @@ class SocketRunner(
     private val immediate = java.util.ArrayDeque<() -> List<SessionOutput>>()
 
     private val lock = Any()
-    private val resources = LinkedHashMap<Int, Resource>()
+    private val resources = ConcurrentHashMap<Int, Resource>()
+    private val allResources = ArrayList<Resource>()
     private val threads = ArrayList<Thread>()
     private var closingAll = false
     private var started = false
@@ -195,8 +271,8 @@ class SocketRunner(
         if (awaitTermination(options.stopGraceMillis)) return
         options.log("会话没有按时结束，强制关闭全部连接")
         abandoned = true
-        val all = synchronized(lock) { resources.values.toList() }
-        for (resource in all) resource.close()
+        val all = synchronized(lock) { allResources.toList() }
+        for (resource in all) resource.forceClose()
         queue.add(Input.Stop)
         if (!awaitTermination(options.stopGraceMillis)) options.log("强制关闭后协议线程仍未结束")
     }
@@ -208,10 +284,13 @@ class SocketRunner(
             execute(session.start(now()))
             drainImmediate()
             while (!session.isEnded && !abandoned) {
-                val input = queue.poll(waitMillis(), TimeUnit.MILLISECONDS)
+                var input = queue.poll(waitMillis(), TimeUnit.MILLISECONDS)
+                while (input != null && !session.isEnded && !abandoned) {
+                    dispatch(input)
+                    drainImmediate()
+                    input = queue.poll()
+                }
                 if (abandoned) break
-                if (input != null) dispatch(input)
-                drainImmediate()
                 val due = session.nextTickAtMillis
                 if (!session.isEnded && due != null) {
                     val now = now()
@@ -317,10 +396,29 @@ class SocketRunner(
 
     private fun connect(action: SessionAction.Connect) {
         val socket = Socket()
-        val connection = ConnectionResource(action.id, socket, options.buffersPerConnection, options.readBufferBytes)
+        try {
+            socket.tcpNoDelay = true
+            if (action.channel == SessionChannel.VIDEO && isDefaultBuffering()) {
+                socket.receiveBufferSize = VIDEO_SOCKET_RCVBUF_BYTES
+            }
+        } catch (e: IOException) {
+            // 个别平台不支持设套接字选项时照常连接。
+        }
+        val connection = ConnectionResource(
+            action.id,
+            action.channel,
+            socket,
+            buffersFor(action.channel),
+            bufferSizeFor(action.channel),
+        )
         val thread = newThread(action.channel, action.id) {
             try {
                 socket.connect(InetSocketAddress(InetAddress.getByName(action.host), action.port), options.connectTimeoutMillis)
+                try {
+                    socket.tcpNoDelay = true
+                } catch (e: IOException) {
+                    // 同上。
+                }
             } catch (e: IOException) {
                 if (!connection.closed.get()) {
                     post(Input.Failed(action.id, "连接 ${action.host}:${action.port} 失败：${describe(e)}"))
@@ -339,13 +437,10 @@ class SocketRunner(
 
     private fun write(action: SessionAction.Write) {
         val connection = lookup(action.id) as? ConnectionResource ?: return
-        try {
-            connection.socket.getOutputStream().write(action.bytes)
-        } catch (e: IOException) {
-            if (!connection.closed.get()) {
-                val message = "写 ${action.bytes.size} 字节失败：${describe(e)}"
-                immediate.add { session.onIoError(action.id, message, now()) }
-            }
+        if (!connection.enqueueWrite(action.bytes)) {
+            connection.forceClose()
+            val message = "写 ${action.bytes.size} 字节失败：发送队列已满"
+            immediate.add { session.onIoError(action.id, message, now()) }
         }
     }
 
@@ -402,7 +497,7 @@ class SocketRunner(
     }
 
     private fun closeResource(id: Int) {
-        val resource = synchronized(lock) { resources.remove(id) } ?: return
+        val resource = resources.remove(id) ?: return
         resource.close()
     }
 
@@ -410,9 +505,10 @@ class SocketRunner(
     private fun closeEverything() {
         val remaining = synchronized(lock) {
             closingAll = true
-            resources.values.toList().also { resources.clear() }
+            resources.clear()
+            allResources.toList().also { allResources.clear() }
         }
-        for (resource in remaining.asReversed()) resource.close()
+        for (resource in remaining.asReversed()) resource.forceClose()
     }
 
     private fun joinThreads() {
@@ -451,7 +547,18 @@ class SocketRunner(
             if (!listener.closed.get()) post(Input.Failed(action.id, "${action.channel.label}监听出错：${describe(e)}"))
             return
         }
-        val connection = ConnectionResource(action.acceptId, socket, options.buffersPerConnection, options.readBufferBytes)
+        try {
+            socket.tcpNoDelay = true
+        } catch (e: IOException) {
+            // 个别平台不支持设套接字选项时照常继续。
+        }
+        val connection = ConnectionResource(
+            action.acceptId,
+            action.channel,
+            socket,
+            buffersFor(action.channel),
+            bufferSizeFor(action.channel),
+        )
         if (!register(connection, null)) {
             closeQuietly(socket)
             return
@@ -521,9 +628,10 @@ class SocketRunner(
     }
 
     private fun udpLoop(udp: UdpResource) {
+        val packet = udp.recvPacket
         while (true) {
             val buffer = udp.pool.take(udp.closed) ?: return
-            val packet = DatagramPacket(buffer, buffer.size)
+            packet.setData(buffer, 0, buffer.size)
             try {
                 udp.socket.receive(packet)
             } catch (e: IOException) {
@@ -537,16 +645,40 @@ class SocketRunner(
 
     // ---------------- 工具 ----------------
 
+    private fun isDefaultBuffering(): Boolean =
+        options.readBufferBytes == DEFAULT_READ_BUFFER_BYTES && options.buffersPerConnection == DEFAULT_BUFFERS_PER_CONN
+
+    private fun buffersFor(channel: SessionChannel): Int {
+        if (!isDefaultBuffering()) return options.buffersPerConnection
+        return when (channel) {
+            SessionChannel.VIDEO -> 8
+            SessionChannel.AUDIO -> 4
+            SessionChannel.REMOTE_CONTROL, SessionChannel.MIC -> 1
+            else -> 2
+        }
+    }
+
+    private fun bufferSizeFor(channel: SessionChannel): Int {
+        if (!isDefaultBuffering()) return options.readBufferBytes
+        return when (channel) {
+            SessionChannel.VIDEO -> DEFAULT_READ_BUFFER_BYTES
+            SessionChannel.AUDIO -> 16 * 1024
+            SessionChannel.REMOTE_CONTROL, SessionChannel.MIC -> 4 * 1024
+            else -> 16 * 1024
+        }
+    }
+
     private fun post(input: Input) {
         queue.add(input)
     }
 
-    private fun lookup(id: Int): Resource? = synchronized(lock) { resources[id] }
+    private fun lookup(id: Int): Resource? = resources[id]
 
     /** 登记资源和它的线程；协议线程已经在退出时返回 false，调用方自己关掉 socket。 */
     private fun register(resource: Resource, thread: Thread?): Boolean = synchronized(lock) {
         if (closingAll) return false
         resources[resource.id] = resource
+        allResources += resource
         if (thread != null) threads += thread
         true
     }
@@ -558,6 +690,11 @@ class SocketRunner(
     }
 
     private companion object {
+        const val DEFAULT_READ_BUFFER_BYTES = 64 * 1024
+        const val DEFAULT_BUFFERS_PER_CONN = 2
+        const val VIDEO_SOCKET_RCVBUF_BYTES = 512 * 1024
+        const val MAX_QUEUED_WRITES = 128
+
         /** 没有定时任务时协议线程最长等多久再看一眼。 */
         const val IDLE_WAIT_MILLIS = 1_000L
 

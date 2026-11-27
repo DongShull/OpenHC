@@ -58,7 +58,6 @@ internal class VideoDepacketizer(sessionKey: ByteArray, private val sink: Access
 
     private var pes = ByteArray(INITIAL_BUFFER)
     private var pesLength = 0
-    private var es = ByteArray(INITIAL_BUFFER)
 
     var failed = false
         private set
@@ -289,11 +288,10 @@ internal class VideoDepacketizer(sessionKey: ByteArray, private val sink: Access
         if (esOffset + AesCtr.IV_BYTES >= n) throw MalformedMessageException("视频 PES 缺少完整 IV 或 ES 为空")
         val cipherStart = esOffset + AesCtr.IV_BYTES
         val esLength = n - cipherStart
-        if (es.size < esLength) es = grow(es, 0, esLength)
-        cipher.decryptInto(p, esOffset, p, cipherStart, esLength, es, 0)
+        cipher.decryptInto(p, esOffset, p, cipherStart, esLength, p, cipherStart)
 
-        unit.data = es
-        unit.offset = 0
+        unit.data = p
+        unit.offset = cipherStart
         unit.length = esLength
         unit.rtpTimestamp = timestamp
         unit.pts90k = pts
