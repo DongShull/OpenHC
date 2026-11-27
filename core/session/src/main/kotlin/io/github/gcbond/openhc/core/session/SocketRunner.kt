@@ -306,6 +306,7 @@ class SocketRunner(
         } finally {
             closeEverything()
             joinThreads()
+            forceCloseAll()
             terminated.countDown()
         }
     }
@@ -503,12 +504,22 @@ class SocketRunner(
 
     /** 协议线程退出前：把还没关的资源按创建的反序关掉，之后不再接受新资源。 */
     private fun closeEverything() {
+        val force = abandoned || failure != null
         val remaining = synchronized(lock) {
             closingAll = true
-            resources.clear()
+            resources.values.toList().also { resources.clear() }
+        }
+        for (resource in remaining.asReversed()) {
+            if (force) resource.forceClose() else resource.close()
+        }
+    }
+
+    /** 线程等待结束后的兜底强关，防止对端卡死写队列导致套接字残留。 */
+    private fun forceCloseAll() {
+        val all = synchronized(lock) {
             allResources.toList().also { allResources.clear() }
         }
-        for (resource in remaining.asReversed()) resource.forceClose()
+        for (resource in all.asReversed()) resource.forceClose()
     }
 
     private fun joinThreads() {
