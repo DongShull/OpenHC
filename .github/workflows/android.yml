@@ -5,6 +5,9 @@ on:
   pull_request:
   workflow_dispatch:
 
+permissions:
+  contents: write
+
 jobs:
   build:
     runs-on: ubuntu-latest
@@ -62,3 +65,19 @@ jobs:
           path: dist/*.apk
           if-no-files-found: error
           retention-days: 30
+
+      - name: 发布直链 APK 到 Releases（免解压直接下载 .apk）
+        if: github.event_name != 'pull_request'
+        env:
+          GH_TOKEN: ${{ github.token }}
+        run: |
+          set -euo pipefail
+          TAG="car-opt-latest"
+          TITLE="OpenHC 0.3.0 车机增强版（最新自动构建）"
+          NOTES=$(printf '分支：`%s` | 提交：`%s`\n\n直接点击下方 **Assets** 里的 `.apk` 文件即可下载安装（无需解压 `.zip`）：\n- **推荐安装**：`OpenHC-0.3.0-car-opt-release.apk`（R8 瘦身签名版，内置连接参数 + 全链路优化 + 诊断页实时滚动日志）\n- **调试备用**：`OpenHC-0.3.0-car-opt-debug.apk`\n' "$GITHUB_REF_NAME" "${GITHUB_SHA::7}")
+          if gh release view "$TAG" >/dev/null 2>&1; then
+            gh release upload "$TAG" dist/*.apk --clobber
+            gh release edit "$TAG" --title "$TITLE" --notes "$NOTES" --prerelease
+          else
+            gh release create "$TAG" dist/*.apk --title "$TITLE" --notes "$NOTES" --prerelease
+          fi

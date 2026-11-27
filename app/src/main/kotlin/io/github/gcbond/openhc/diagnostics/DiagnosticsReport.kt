@@ -60,6 +60,46 @@ internal object DiagnosticsReport {
         return !m.groupValues[2].startsWith("type=1400")
     }
 
+    /** 实时日志框里一行的视觉分类：普通行、警告/错误行（W/E/F/A）、诊断分节标记行（===== … =====）。 */
+    enum class LineKind { NORMAL, WARN, MARKER }
+
+    /**
+     * 判断一行运行日志的类型（供设置页实时日志框着色和「只看异常」筛选）：
+     * - `===== … =====` 诊断记录标记行算 [LineKind.MARKER]（其中写明丢日志或退出的算 [LineKind.WARN]）；
+     * - `logcat -v threadtime` 行中级别为 `W`/`E`/`F`/`A` 算 [LineKind.WARN]；
+     * - 其余行算 [LineKind.NORMAL]。
+     */
+    fun classifyLine(line: String): LineKind {
+        if (line.startsWith("===== ") && line.endsWith(" =====")) {
+            return if ("丢了" in line || "退出了" in line) LineKind.WARN else LineKind.MARKER
+        }
+        return when (threadtimeLevel(line)) {
+            'W', 'E', 'F', 'A' -> LineKind.WARN
+            else -> LineKind.NORMAL
+        }
+    }
+
+    /** 快速提取 `MM-dd HH:mm:ss.SSS  PID  TID L …` 里的级别字符，不分配正则对象。 */
+    private fun threadtimeLevel(line: String): Char {
+        val n = line.length
+        if (n < 22 || line[2] != '-' || line[5] != ' ' || line[8] != ':' || line[11] != ':' || line[14] != '.') {
+            return '?'
+        }
+        var i = 15
+        if (i >= n || line[i] !in '0'..'9') return '?'
+        while (i < n && line[i] in '0'..'9') i++
+        if (i >= n || line[i] != ' ') return '?'
+        while (i < n && line[i] == ' ') i++
+        if (i >= n || line[i] !in '0'..'9') return '?'
+        while (i < n && line[i] in '0'..'9') i++
+        if (i >= n || line[i] != ' ') return '?'
+        while (i < n && line[i] == ' ') i++
+        if (i >= n || line[i] !in '0'..'9') return '?'
+        while (i < n && line[i] in '0'..'9') i++
+        if (i + 2 >= n || line[i] != ' ' || line[i + 2] != ' ') return '?'
+        return line[i + 1]
+    }
+
     private fun levelChar(priority: Int): Char = when (priority) {
         2 -> 'V'
         3 -> 'D'

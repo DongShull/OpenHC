@@ -15,6 +15,7 @@ import java.text.SimpleDateFormat
 import java.util.ArrayList
 import java.util.Date
 import java.util.Locale
+import java.util.concurrent.CopyOnWriteArrayList
 import java.util.concurrent.locks.ReentrantLock
 import kotlin.concurrent.withLock
 
@@ -65,6 +66,30 @@ internal object LogRecorder {
     private var dropped = 0
 
     private val pid = Process.myPid()
+
+    private fun interface LiveListener {
+        fun onLine(line: String)
+    }
+
+    private val liveListeners = CopyOnWriteArrayList<LiveListener>()
+
+    /**
+     * 挂载设置页「实时日志」缓冲：先把排队日志落盘并回填最近 [LiveLogBuffer.maxLines] 行，再把后续每一行实时送入 [buffer]。
+     * 返回解绑函数，离开诊断页时调，日常投屏和首页期间零额外开销。
+     */
+    fun attachLive(buffer: LiveLogBuffer, onWake: () -> Unit): () -> Unit {
+        val listener = LiveListener { line ->
+            if (buffer.enqueueRaw(line)) onWake()
+        }
+        synchronized(fileLock) {
+            writeQueued()
+            flushQuietly()
+            buffer.enqueueInitial(LiveLogBuffer.readTailRaw(logFiles(), buffer.maxLines))
+            liveListeners.add(listener)
+        }
+        onWake()
+        return { liveListeners.remove(listener) }
+    }
 
     /** 开始记（应用启动时调一次；再调不做什么）。 */
     fun start(context: Context) {
@@ -226,6 +251,9 @@ internal object LogRecorder {
 
     /** 调用时持有 [fileLock]。不 flush：由调用方按批 flush（写文件线程每批一次，读 logcat 批量一次，导出前一次）。 */
     private fun writeLine(line: String) {
+        if (liveListeners.isNotEmpty()) {
+            for (listener in liveListeners) listener.onLine(line)
+        }
         val w = writer ?: return
         try {
             w.write(line)
