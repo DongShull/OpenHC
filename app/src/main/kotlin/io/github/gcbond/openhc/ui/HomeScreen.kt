@@ -535,7 +535,6 @@ private fun OverviewModeCard(
                 large = false,
                 tint = if (highlighted) Palette.Accent else Palette.Text2,
                 background = if (highlighted) Palette.Tint else Palette.CardElevated,
-                border = if (highlighted) Palette.TintBorder else Palette.CardBorder,
             )
             Column(Modifier.weight(1f)) {
                 Row(
@@ -580,7 +579,7 @@ private fun OverviewModeCard(
 @Composable
 private fun ParamChip(text: String, active: Boolean = false) {
     val compact = LocalCompact.current
-    val shape = RoundedCornerShape(10.dp)
+    val shape = RoundedCornerShape(8.dp)
     Text(
         text = text,
         style = UiType.footer(compact).copy(fontWeight = if (active) FontWeight.SemiBold else FontWeight.Medium),
@@ -589,7 +588,6 @@ private fun ParamChip(text: String, active: Boolean = false) {
         modifier = Modifier
             .clip(shape)
             .background(if (active) Palette.Tint else Palette.CardElevated)
-            .border(1.dp, if (active) Palette.TintBorder else Palette.CardBorder, shape)
             .padding(horizontal = 10.dp, vertical = 4.dp),
     )
 }

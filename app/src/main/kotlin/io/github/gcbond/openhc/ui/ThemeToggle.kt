@@ -27,7 +27,7 @@ import androidx.compose.ui.unit.dp
 import io.github.gcbond.openhc.R
 import io.github.gcbond.openhc.settings.AppSettings
 
-/** 顶栏右侧的深浅色紧凑切换胶囊：自动（随车机大灯/昼夜切换）、浅色、深色。 */
+/** 极简紧凑的深浅色切换胶囊：自动（随车机大灯/昼夜切换）、浅色、深色。 */
 @Composable
 internal fun ThemeToggle(modifier: Modifier = Modifier) {
     val context = LocalContext.current
@@ -42,8 +42,7 @@ internal fun ThemeToggle(modifier: Modifier = Modifier) {
     Row(
         modifier
             .clip(RoundedCornerShape(percent = 50))
-            .background(Palette.Card)
-            .border(1.dp, Palette.CardBorder, RoundedCornerShape(percent = 50))
+            .background(Palette.SegmentBackground)
             .padding(3.dp)
             .selectableGroup(),
         horizontalArrangement = Arrangement.spacedBy(2.dp),
@@ -72,17 +71,17 @@ private fun ThemeTextChoice(
     val shape = RoundedCornerShape(percent = 50)
     Box(
         Modifier
-            .size(if (compact) 44.dp else 48.dp, if (compact) 36.dp else 40.dp)
+            .size(if (compact) 42.dp else 46.dp, if (compact) 32.dp else 34.dp)
             .clip(shape)
-            .background(if (selected) Palette.Button else Color.Transparent)
-            .then(if (selected) Modifier.border(1.dp, Palette.ButtonBorder, shape) else Modifier)
+            .background(if (selected) Palette.SegmentSelected else Color.Transparent)
+            .then(if (selected) Modifier.border(0.5.dp, Palette.SegmentSelectedBorder, shape) else Modifier)
             .selectable(selected = selected, role = Role.RadioButton, onClick = onClick),
         contentAlignment = Alignment.Center,
     ) {
         Text(
             text = label,
-            style = UiType.footer(compact).copy(fontWeight = if (selected) FontWeight.Bold else FontWeight.Medium),
-            color = if (selected) Palette.Accent else Palette.Muted,
+            style = UiType.footer(compact).copy(fontWeight = if (selected) FontWeight.SemiBold else FontWeight.Normal),
+            color = if (selected) Palette.Text else Palette.Muted,
             maxLines = 1,
         )
     }
@@ -100,13 +99,13 @@ private fun ThemeChoice(
     val shape = RoundedCornerShape(percent = 50)
     Box(
         Modifier
-            .size(if (compact) 40.dp else 44.dp, if (compact) 36.dp else 40.dp)
+            .size(if (compact) 36.dp else 40.dp, if (compact) 32.dp else 34.dp)
             .clip(shape)
-            .background(if (selected) Palette.Button else Color.Transparent)
-            .then(if (selected) Modifier.border(1.dp, Palette.ButtonBorder, shape) else Modifier)
+            .background(if (selected) Palette.SegmentSelected else Color.Transparent)
+            .then(if (selected) Modifier.border(0.5.dp, Palette.SegmentSelectedBorder, shape) else Modifier)
             .selectable(selected = selected, role = Role.RadioButton, onClick = onClick),
         contentAlignment = Alignment.Center,
     ) {
-        Icon(glyph, contentDescription = label, tint = if (selected) selectedTint else Palette.Muted, modifier = Modifier.size(19.dp))
+        Icon(glyph, contentDescription = label, tint = if (selected) selectedTint else Palette.Muted, modifier = Modifier.size(17.dp))
     }
 }

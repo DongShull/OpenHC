@@ -162,8 +162,7 @@ private fun ScanStepRow(number: String, text: String) {
             Modifier
                 .size(if (compact) 22.dp else 24.dp)
                 .clip(CircleShape)
-                .background(Palette.Tint)
-                .border(1.dp, Palette.TintBorder, CircleShape),
+                .background(Palette.Tint),
             contentAlignment = Alignment.Center,
         ) {
             Text(
@@ -193,14 +192,14 @@ private fun QrAndPin(qr: String, pin: String?, size: QrPinSize) {
     val qrShape = RoundedCornerShape(18.dp)
     Column(horizontalAlignment = Alignment.CenterHorizontally) {
         Spacer(Modifier.height(QrPinLayout.QR_MARGIN.dp))
-        // 码图自带 2 个模块的白边：外面再补约 2 个模块的白边，外层加精致蓝光细边框，深浅色下都清晰好扫。
+        // 码图自带 2 个模块的白边：外面再补约 2 个模块的白边，深浅色下都清晰好扫。
         QrCodeImage(
             qr,
             Modifier
                 .size(size.qr.dp)
                 .clip(qrShape)
                 .background(Color.White)
-                .border(2.dp, Palette.TintBorder, qrShape)
+                .border(1.dp, Palette.CardBorder, qrShape)
                 .padding((size.qr * QR_EXTRA_QUIET).dp),
         )
         if (pin != null && size.pinBox > 0f) {

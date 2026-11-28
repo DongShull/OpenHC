@@ -213,7 +213,7 @@ private fun StreamChips(selected: Int, onSelect: (Int) -> Unit) {
         state = state,
         modifier = Modifier
             .fillMaxWidth()
-            .clip(RoundedCornerShape(12.dp))
+            .clip(RoundedCornerShape(10.dp))
             .background(Palette.SegmentBackground)
             .padding(3.dp)
             .selectableGroup(),
@@ -224,16 +224,16 @@ private fun StreamChips(selected: Int, onSelect: (Int) -> Unit) {
             Box(
                 Modifier
                     .width(CHIP_WIDTH)
-                    .clip(RoundedCornerShape(6.dp))
-                    .background(if (on) Palette.On else Color.Transparent)
+                    .clip(RoundedCornerShape(7.dp))
+                    .background(if (on) Palette.SegmentSelected else Color.Transparent)
                     .selectable(selected = on, role = Role.RadioButton) { onSelect(value) }
                     .padding(vertical = if (compact) 5.dp else 7.dp),
                 contentAlignment = Alignment.Center,
             ) {
                 Text(
                     if (value == AudioStreamChoice.AUTO) auto else value.toString(),
-                    style = UiType.option(compact).copy(fontWeight = if (on) FontWeight.Bold else FontWeight.Normal),
-                    color = if (on) Palette.OnAccent else Palette.Text2,
+                    style = UiType.option(compact).copy(fontWeight = if (on) FontWeight.SemiBold else FontWeight.Normal),
+                    color = if (on) Palette.Text else Palette.Text2,
                     maxLines = 1,
                 )
             }

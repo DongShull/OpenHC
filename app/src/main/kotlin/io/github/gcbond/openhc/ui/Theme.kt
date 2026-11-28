@@ -1,5 +1,6 @@
 package io.github.gcbond.openhc.ui
 
+import androidx.compose.foundation.background
 import androidx.compose.material3.MaterialTheme
 import androidx.compose.material3.Typography
 import androidx.compose.material3.darkColorScheme
@@ -10,9 +11,6 @@ import androidx.compose.runtime.getValue
 import androidx.compose.runtime.mutableStateOf
 import androidx.compose.runtime.setValue
 import androidx.compose.ui.Modifier
-import androidx.compose.ui.draw.drawBehind
-import androidx.compose.ui.geometry.Offset
-import androidx.compose.ui.graphics.Brush
 import androidx.compose.ui.graphics.Color
 import androidx.compose.ui.text.TextStyle
 import androidx.compose.ui.text.font.FontFamily
@@ -21,7 +19,8 @@ import androidx.compose.ui.unit.dp
 import androidx.compose.ui.unit.em
 import androidx.compose.ui.unit.sp
 
-// 现代新能源座舱风格配色、字号与公共尺寸：深色（深空蓝黑 + 冰蓝高光微描边）与浅色（通透冷瓷灰 + 纯白卡片）两套主题。
+// 克制、干净的现代车机配色（参考 HarmonyOS 车机 / Apple CarPlay 极简深色石墨与浅色纯白风格）：
+// 去掉浮夸霓虹蓝底与高对比白框，只靠中性灰阶层次拉开主次，品牌蓝仅用在核心操作与选中状态上。
 
 /**
  * 配色。各颜色按 [dark] 取深色或浅色那一套；[dark] 是快照状态，切换后读过它的界面都会重画，
@@ -36,117 +35,95 @@ internal object Palette {
 
     private fun pick(dark: Long, light: Long) = Color(if (this.dark) dark else light)
 
-    /** 页面底色。 */
-    val Background get() = pick(0xFF070B14, 0xFFEEF2F7)
+    /** 页面底色：中性哑光石墨黑 / 极浅中性灰。 */
+    val Background get() = pick(0xFF0C0D10, 0xFFF2F3F7)
 
-    /** 顶部地平线极淡氛围光（零模糊开销，增强座舱空间纵深感）。 */
-    val BackgroundGlow get() = if (dark) Color(0x292563EB) else Color(0x162563EB)
-    val BackgroundGlowEdge get() = if (dark) Color(0x1438BDF8) else Color(0x0D0EA5E9)
+    /** 设置页全高左侧导航栏底色。 */
+    val RailBackground get() = pick(0xFF12141A, 0xFFFFFFFF)
 
     /** 主卡片、分组框。 */
-    val Card get() = pick(0xFF101726, 0xFFFFFFFF)
+    val Card get() = pick(0xFF181B22, 0xFFFFFFFF)
 
-    /** 卡片内次级高光面板（右侧概览卡、子状态块）。 */
-    val CardElevated get() = pick(0xFF152035, 0xFFF7FAFE)
+    /** 卡片内次级面板（子信息块、未选中选项卡）。 */
+    val CardElevated get() = pick(0xFF20242D, 0xFFF6F7FA)
 
-    /** 卡片 1dp 玻璃高光描边。 */
-    val CardBorder get() = if (dark) Color(0x1EFFFFFF) else Color(0xFFDFE7F1)
+    /** 极轻弱的发丝分隔描边，不抢视觉。 */
+    val CardBorder get() = if (dark) Color(0x0FFFFFFF) else Color(0x120F172A)
 
-    /** 卡片顶部的微弱高光叠层。 */
-    val CardTopSheen get() = if (dark) Color(0x0AFFFFFF) else Color(0x00FFFFFF)
+    val Text get() = pick(0xFFF3F4F6, 0xFF111318)
 
-    val Text get() = pick(0xFFF3F7FD, 0xFF0D172A)
+    /** 比正文淡一档、仍清晰可读的说明文字。 */
+    val Text2 get() = pick(0xFFA1A7B3, 0xFF4F5665)
 
-    /** 比正文淡一档、仍要读的文字（卡片里的一句话说明）。 */
-    val Text2 get() = pick(0xFFB9C6DA, 0xFF3A4B63)
+    /** 次要文字：摘要、提示、页脚。 */
+    val Muted get() = pick(0xFF6F7685, 0xFF838A98)
 
-    /** 次要文字：说明、页脚。 */
-    val Muted get() = pick(0xFF7D8FA8, 0xFF63748C)
+    /** 品牌强调蓝（克制使用：主操作、开关开启、当前图标高亮）。 */
+    val Accent get() = pick(0xFF0A84FF, 0xFF007AFF)
 
-    /** 强调色、小标题、图标。 */
-    val Accent get() = pick(0xFF5FA5FF, 0xFF1D56E0)
-
-    /** 青蓝高光点缀（徽标、连接进度）。 */
-    val AccentCyan get() = pick(0xFF38BDF8, 0xFF0284C7)
-
-    /** 图标底下的轻透色块及边框。 */
-    val Tint get() = if (dark) Color(0x263B82F6) else Color(0x142563EB)
-    val TintBorder get() = if (dark) Color(0x4A5FA5FF) else Color(0x332563EB)
+    /** 轻柔蓝底（仅用于极少数强调图标或选中面板，不再满屏泛滥）。 */
+    val Tint get() = if (dark) Color(0x1F0A84FF) else Color(0x14007AFF)
+    val TintBorder get() = if (dark) Color(0x400A84FF) else Color(0x33007AFF)
 
     /** 要用户注意的：缺东西、出错、需要重开才生效。 */
-    val Warn get() = pick(0xFFFBBF24, 0xFFB45309)
-    val WarnBackground get() = if (dark) Color(0x1AFBBF24) else Color(0xFFFFF8E6)
-    val WarnBorder get() = if (dark) Color(0x5CFBBF24) else Color(0xFFF2C96B)
+    val Warn get() = pick(0xFFFFB340, 0xFFB86B00)
+    val WarnBackground get() = if (dark) Color(0x18FFB340) else Color(0xFFFFF7E6)
+    val WarnBorder get() = if (dark) Color(0x45FFB340) else Color(0x45D9820B)
 
     /** 好的状态（开着、已连上、投屏中）。 */
-    val Positive get() = pick(0xFF34D399, 0xFF16A34A)
-    val PositiveBackground get() = if (dark) Color(0x1E34D399) else Color(0x1716A34A)
-    val PositiveBorder get() = if (dark) Color(0x4D34D399) else Color(0x4016A34A)
+    val Positive get() = pick(0xFF30D158, 0xFF18A957)
+    val PositiveBackground get() = if (dark) Color(0x1C30D158) else Color(0x1618A957)
+    val PositiveBorder get() = if (dark) Color(0x3830D158) else Color(0x3318A957)
 
-    /** 主按钮、开关打开、选项选中。上面的字用 [OnAccent]。 */
-    val On get() = Color(0xFF2563EB)
-    val OnGradientStart get() = Color(0xFF3382FF)
-    val OnGradientEnd get() = Color(0xFF1D52E0)
+    /** 主按钮与开关开启态。 */
+    val On get() = pick(0xFF0A84FF, 0xFF007AFF)
     val OnAccent get() = Color.White
-    val SwitchOff get() = pick(0xFF2B374D, 0xFFCBD5E1)
+    val SwitchOff get() = pick(0xFF343844, 0xFFD4D8E0)
 
-    /** 次要按钮（「设置」「返回」「停止」、行内小按钮）的底色、描边和字色。 */
-    val Button get() = pick(0xFF1A253B, 0xFFE6EDF7)
-    val ButtonBorder get() = if (dark) Color(0x1CFFFFFF) else Color(0xFFD4DFEE)
-    val ButtonText get() = pick(0xFFF0F4FA, 0xFF0F172A)
+    /** 次要按钮（「设置」「返回」「停止」、行内小按钮）。 */
+    val Button get() = pick(0xFF232732, 0xFFE9ECF2)
+    val ButtonBorder get() = if (dark) Color(0x0DFFFFFF) else Color(0x0F0F172A)
+    val ButtonText get() = pick(0xFFF3F4F6, 0xFF111318)
 
-    /** 分段选择、声道一排、内嵌槽的底色。 */
-    val SegmentBackground get() = pick(0xFF0B111F, 0xFFE9EFF7)
-    val Divider get() = if (dark) Color(0x16FFFFFF) else Color(0xFFE3EAF3)
+    /** 分段选择器底槽与中性高亮滑块（避免设置页满屏刺眼蓝块）。 */
+    val SegmentBackground get() = pick(0xFF101218, 0xFFE8EBF1)
+    val SegmentSelected get() = pick(0xFF2B303C, 0xFFFFFFFF)
+    val SegmentSelectedBorder get() = if (dark) Color(0x14FFFFFF) else Color(0x140F172A)
+
+    /** 行间发丝分隔线。 */
+    val Divider get() = if (dark) Color(0x0FFFFFFF) else Color(0x120F172A)
 
     /** 连接码方框。 */
-    val PinBox get() = pick(0xFF172338, 0xFFF2F6FC)
-    val PinText get() = pick(0xFFF8FAFC, 0xFF0F172A)
+    val PinBox get() = pick(0xFF20242D, 0xFFF3F5F8)
+    val PinText get() = pick(0xFFF8FAFC, 0xFF111318)
 
-    /** 弹出框的底色。 */
-    val Raised get() = pick(0xFF151F33, 0xFFFFFFFF)
+    /** 弹出框底色。 */
+    val Raised get() = pick(0xFF1B1E26, 0xFFFFFFFF)
 
-    /** 设置页左边目录里选中的那一项。 */
-    val NavSelected get() = if (dark) Color(0x283B82F6) else Color(0xFFE5EEFF)
-    val NavSelectedText get() = pick(0xFFF5F8FE, 0xFF1D4ED8)
+    /** 设置页左侧导航栏选中项：干净的中性高光胶囊。 */
+    val NavSelected get() = pick(0xFF222631, 0xFFEDF0F5)
+    val NavSelectedText get() = pick(0xFFF5F6F8, 0xFF111318)
 
     /** 太阳、月亮选中时的颜色。 */
     val Sun get() = Color(0xFFF59E0B)
-    val Moon get() = Color(0xFFFCD34D)
+    val Moon get() = Color(0xFFFBBF24)
 }
 
-/** 轻量级座舱背景：纯色底 + 顶部与右侧极淡径向微光（单次 Canvas 绘制，无模糊开销）。 */
-internal fun Modifier.cockpitBackground(): Modifier = drawBehind {
-    drawRect(Palette.Background)
-    val glowRadius = size.maxDimension * 0.65f
-    drawRect(
-        Brush.radialGradient(
-            colors = listOf(Palette.BackgroundGlow, Color.Transparent),
-            center = Offset(size.width * 0.25f, -size.height * 0.1f),
-            radius = glowRadius,
-        ),
-    )
-    drawRect(
-        Brush.radialGradient(
-            colors = listOf(Palette.BackgroundGlowEdge, Color.Transparent),
-            center = Offset(size.width * 0.85f, size.height * 0.12f),
-            radius = glowRadius * 0.75f,
-        ),
-    )
-}
+/** 干净的哑光座舱底色，不做花哨渐变。 */
+internal fun Modifier.cockpitBackground(): Modifier = background(Palette.Background)
 
 /** 公共尺寸。 */
 internal object Dimens {
     /** 页面左右留白；窄屏（宽不到 [WIDE_PAGE_MIN]）收成 [PageSideNarrow]。 */
-    val PageSide = 32.dp
+    val PageSide = 28.dp
     val PageSideNarrow = 16.dp
     val WIDE_PAGE_MIN = 600.dp
 
     /** 低于这个高度算矮屏：字号、间距收一档。 */
     val CompactHeight = 560.dp
-    val CardRadius = 24.dp
-    val SubCardRadius = 18.dp
-    val CardPadding = 24.dp
+    val CardRadius = 18.dp
+    val SubCardRadius = 14.dp
+    val CardPadding = 22.dp
     val CardPaddingCompact = 16.dp
 }
 
@@ -158,84 +135,84 @@ internal object UiType {
     private val base = TextStyle(letterSpacing = 0.sp)
 
     fun title(compact: Boolean) = base.copy(fontSize = if (compact) 20.sp else 23.sp, fontWeight = FontWeight.Bold)
-    val topButton = base.copy(fontSize = 16.sp, fontWeight = FontWeight.Medium)
-    val pill = base.copy(fontSize = 18.sp, fontWeight = FontWeight.SemiBold)
-    fun action(compact: Boolean) = base.copy(fontSize = if (compact) 14.sp else 15.sp, fontWeight = FontWeight.Medium)
+    val topButton = base.copy(fontSize = 15.sp, fontWeight = FontWeight.Medium)
+    val pill = base.copy(fontSize = 17.sp, fontWeight = FontWeight.SemiBold)
+    fun action(compact: Boolean) = base.copy(fontSize = if (compact) 13.sp else 14.sp, fontWeight = FontWeight.Medium)
 
     // 首页卡片
-    fun cardTitle(compact: Boolean) = base.copy(fontSize = if (compact) 22.sp else 27.sp, fontWeight = FontWeight.Bold)
-    fun cardText(compact: Boolean) = base.copy(fontSize = if (compact) 14.sp else 16.sp, lineHeight = 1.55.em)
+    fun cardTitle(compact: Boolean) = base.copy(fontSize = if (compact) 22.sp else 26.sp, fontWeight = FontWeight.Bold)
+    fun cardText(compact: Boolean) = base.copy(fontSize = if (compact) 14.sp else 15.sp, lineHeight = 1.5.em)
     fun cardHeader(compact: Boolean) = base.copy(fontSize = if (compact) 13.sp else 15.sp, fontWeight = FontWeight.SemiBold)
-    val status = base.copy(fontSize = 19.sp, fontWeight = FontWeight.Bold)
-    val hint = base.copy(fontSize = 14.sp, lineHeight = 1.5.em)
-    fun message(compact: Boolean) = base.copy(fontSize = if (compact) 17.sp else 20.sp, lineHeight = 1.5.em)
+    val status = base.copy(fontSize = 18.sp, fontWeight = FontWeight.Bold)
+    val hint = base.copy(fontSize = 13.sp, lineHeight = 1.5.em)
+    fun message(compact: Boolean) = base.copy(fontSize = if (compact) 17.sp else 19.sp, lineHeight = 1.5.em)
     fun footer(compact: Boolean) = base.copy(fontSize = if (compact) 12.sp else 13.sp, lineHeight = 1.4.em)
 
     // 设置页
-    fun groupTitle(compact: Boolean) = base.copy(fontSize = if (compact) 13.sp else 14.sp, fontWeight = FontWeight.Bold)
+    fun groupTitle(compact: Boolean) = base.copy(fontSize = if (compact) 13.sp else 14.sp, fontWeight = FontWeight.SemiBold)
     fun nav(compact: Boolean) = base.copy(fontSize = if (compact) 15.sp else 16.sp)
-    fun rowTitle(compact: Boolean) = base.copy(fontSize = if (compact) 16.sp else 17.sp, fontWeight = FontWeight.Medium)
-    fun rowSummary(compact: Boolean) = base.copy(fontSize = if (compact) 13.sp else 14.sp, lineHeight = 1.45.em)
-    fun rowDesc(compact: Boolean) = base.copy(fontSize = if (compact) 13.sp else 14.sp, lineHeight = 1.5.em)
+    fun rowTitle(compact: Boolean) = base.copy(fontSize = if (compact) 15.sp else 16.sp, fontWeight = FontWeight.Medium)
+    fun rowSummary(compact: Boolean) = base.copy(fontSize = if (compact) 13.sp else 13.5.sp, lineHeight = 1.45.em)
+    fun rowDesc(compact: Boolean) = base.copy(fontSize = if (compact) 13.sp else 13.5.sp, lineHeight = 1.5.em)
     fun rowNote(compact: Boolean) =
-        base.copy(fontSize = if (compact) 13.sp else 14.sp, fontWeight = FontWeight.Bold, lineHeight = 1.4.em)
-    fun option(compact: Boolean) = base.copy(fontSize = if (compact) 14.sp else 15.sp)
-    fun value(compact: Boolean) = base.copy(fontSize = if (compact) 14.sp else 15.sp, fontFamily = FontFamily.Monospace)
+        base.copy(fontSize = if (compact) 13.sp else 13.5.sp, fontWeight = FontWeight.SemiBold, lineHeight = 1.4.em)
+    fun option(compact: Boolean) = base.copy(fontSize = if (compact) 13.sp else 14.sp)
+    fun value(compact: Boolean) = base.copy(fontSize = if (compact) 13.sp else 14.sp, fontFamily = FontFamily.Monospace)
     fun chevron(compact: Boolean) = base.copy(fontSize = if (compact) 18.sp else 20.sp)
 }
 
 private val DarkColorScheme = darkColorScheme(
-    primary = Color(0xFF2563EB),
+    primary = Color(0xFF0A84FF),
     onPrimary = Color.White,
-    primaryContainer = Color(0xFF1E3A8A),
+    primaryContainer = Color(0xFF1F2B3D),
     onPrimaryContainer = Color.White,
-    secondary = Color(0xFF5FA5FF),
-    onSecondary = Color(0xFF070B14),
-    tertiary = Color(0xFF38BDF8),
-    background = Color(0xFF070B14),
-    onBackground = Color(0xFFF3F7FD),
-    surface = Color(0xFF101726),
-    onSurface = Color(0xFFF3F7FD),
-    surfaceVariant = Color(0xFF1A253B),
-    onSurfaceVariant = Color(0xFF7D8FA8),
-    surfaceContainerLowest = Color(0xFF070B14),
-    surfaceContainerLow = Color(0xFF101726),
-    surfaceContainer = Color(0xFF151F33),
-    surfaceContainerHigh = Color(0xFF1A253B),
-    surfaceContainerHighest = Color(0xFF202D47),
-    outline = Color(0xFF7D8FA8),
-    outlineVariant = Color(0xFF2B374D),
-    error = Color(0xFFFBBF24),
-    onError = Color(0xFF070B14),
-    errorContainer = Color(0xFFFBBF24),
-    onErrorContainer = Color(0xFF070B14),
+    secondary = Color(0xFF0A84FF),
+    onSecondary = Color.White,
+    tertiary = Color(0xFF30D158),
+    background = Color(0xFF0C0D10),
+    onBackground = Color(0xFFF3F4F6),
+    surface = Color(0xFF181B22),
+    onSurface = Color(0xFFF3F4F6),
+    surfaceVariant = Color(0xFF232732),
+    onSurfaceVariant = Color(0xFFA1A7B3),
+    surfaceContainerLowest = Color(0xFF0C0D10),
+    surfaceContainerLow = Color(0xFF12141A),
+    surfaceContainer = Color(0xFF181B22),
+    surfaceContainerHigh = Color(0xFF20242D),
+    surfaceContainerHighest = Color(0xFF2B303C),
+    outline = Color(0xFF6F7685),
+    outlineVariant = Color(0xFF343844),
+    error = Color(0xFFFFB340),
+    onError = Color(0xFF0C0D10),
+    errorContainer = Color(0xFFFFB340),
+    onErrorContainer = Color(0xFF0C0D10),
 )
 
 private val LightColorScheme = lightColorScheme(
-    primary = Color(0xFF2563EB),
+    primary = Color(0xFF007AFF),
     onPrimary = Color.White,
-    primaryContainer = Color(0xFFE5EEFF),
-    onPrimaryContainer = Color(0xFF1D4ED8),
-    secondary = Color(0xFF1D56E0),
+    primaryContainer = Color(0xFFE5F0FF),
+    onPrimaryContainer = Color(0xFF0056B3),
+    secondary = Color(0xFF007AFF),
     onSecondary = Color.White,
-    tertiary = Color(0xFF0284C7),
-    background = Color(0xFFEEF2F7),
-    onBackground = Color(0xFF0D172A),
+    tertiary = Color(0xFF18A957),
+    background = Color(0xFFF2F3F7),
+    onBackground = Color(0xFF111318),
     surface = Color.White,
-    onSurface = Color(0xFF0D172A),
-    surfaceVariant = Color(0xFFE6EDF7),
-    onSurfaceVariant = Color(0xFF63748C),
+    onSurface = Color(0xFF111318),
+    surfaceVariant = Color(0xFFE9ECF2),
+    onSurfaceVariant = Color(0xFF4F5665),
     surfaceContainerLowest = Color.White,
     surfaceContainerLow = Color.White,
     surfaceContainer = Color.White,
-    surfaceContainerHigh = Color(0xFFF7FAFE),
-    surfaceContainerHighest = Color(0xFFE6EDF7),
-    outline = Color(0xFF63748C),
-    outlineVariant = Color(0xFFCBD5E1),
-    error = Color(0xFFB45309),
+    surfaceContainerHigh = Color(0xFFF6F7FA),
+    surfaceContainerHighest = Color(0xFFE9ECF2),
+    outline = Color(0xFF838A98),
+    outlineVariant = Color(0xFFD4D8E0),
+    error = Color(0xFFB86B00),
     onError = Color.White,
-    errorContainer = Color(0xFFFFF8E6),
-    onErrorContainer = Color(0xFFB45309),
+    errorContainer = Color(0xFFFFF7E6),
+    onErrorContainer = Color(0xFFB86B00),
 )
 
 private val OpenHcTypography: Typography = Typography().let { d ->
@@ -252,8 +229,7 @@ private val OpenHcTypography: Typography = Typography().let { d ->
 }
 
 /**
- * 全应用的主题：按 [Palette.dark] 用深色或浅色。还在用的 Material 组件（输入框、弹框）从这里取色：
- * 主色是座舱蓝，「错误」用提醒用的琥珀色，和自己画的控件一致。
+ * 全应用的主题：按 [Palette.dark] 用深色石墨或浅色纯白。
  */
 @Composable
 internal fun OpenHcTheme(content: @Composable () -> Unit) {
