@@ -161,8 +161,8 @@ internal class TunInterface(private val descriptor: ParcelFileDescriptor) : Pack
 
     private companion object {
         const val POLL_TIMEOUT_MS = 1000
-        const val WRITE_WAIT_MS = 4
-        const val MAX_WRITE_WAITS = 2
+        const val WRITE_WAIT_MS = 5
+        const val MAX_WRITE_WAITS = 6
         val WAKE_BYTE = byteArrayOf(1)
     }
 }

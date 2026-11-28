@@ -161,19 +161,21 @@ internal class AudioOutput(
     }
 
     override fun onAudioPacket(packet: AudioPacket) {
-        val stale = deliver(packet)
+        val (stale, statsLine) = deliver(packet)
+        statsLine?.let { Log.i(TAG, it) }
         stale?.finish()
     }
 
-    /** 在 [lock] 里找到（或建好）这一路、送进播放器；若有被替换的旧播放器返回给调用方在锁外关闭。 */
-    private fun deliver(packet: AudioPacket): Stream? {
+    /** 在 [lock] 里找到（或建好）这一路、送进播放器；若有被替换的旧播放器或统计日志，返回给调用方在锁外处理。 */
+    private fun deliver(packet: AudioPacket): Pair<Stream?, String?> {
         var replaced: Stream? = null
+        var statsLine: String? = null
         synchronized(lock) {
-            if (closed) return null
+            if (closed) return null to null
             if (!packet.playable) {
                 muted++
                 if (muted == 1L) Log.w(TAG, "[$attemptId] 载荷不像声音（多半还有一层没解开），静音不放；看分帧识别的日志和抓包")
-                return null
+                return null to null
             }
             val info = packet.stream
             val expectedEncoding = encodingOf(packet.codec)
@@ -186,7 +188,7 @@ internal class AudioOutput(
             }
             if (stream == null) {
                 val created = streamFor(packet, expectedEncoding) { old -> replaced = old }
-                if (created == null) return replaced
+                if (created == null) return replaced to null
                 stream = created
             }
             if (info.dataSessionId.startsWith(AudioStreamInfo.CONTROL_SESSION_ID)) lastControlAudioAt = SystemClock.elapsedRealtime()
@@ -200,14 +202,12 @@ internal class AudioOutput(
             stream.packets++
             if (stream.packets % STATS_EVERY == 0L) {
                 val underruns = target.trackUnderruns?.let { "，音轨欠载 $it 次" } ?: ""
-                Log.i(
-                    TAG,
+                statsLine =
                     "[$attemptId] ${stream.label()}已送进播放器 ${stream.packets} 包（静音 $muted）；${target.latency ?: "延迟还没测到"}；" +
-                        "起播压回丢 ${target.startTrimmedMillis}ms，削峰丢 ${target.trimmedMillis}ms（${target.trimmedChunks} 块），" +
-                        "突发超限丢 ${target.droppedMillis}ms，放空 ${target.starvations} 次$underruns",
-                )
+                    "起播压回丢 ${target.startTrimmedMillis}ms，削峰丢 ${target.trimmedMillis}ms（${target.trimmedChunks} 块），" +
+                    "突发超限丢 ${target.droppedMillis}ms，放空 ${target.starvations} 次$underruns"
             }
-            return replaced
+            return replaced to statsLine
         }
     }
 

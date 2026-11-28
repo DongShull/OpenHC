@@ -48,6 +48,7 @@ class AudioJitterQueue(
     private var buffered = 0L
     private var releasing = false
     private var closed = false
+    private var waiters = 0
 
     @Volatile
     private var dropped = 0L
@@ -131,7 +132,7 @@ class AudioJitterQueue(
     /** 唤醒等待中的播放线程（例如音量变化时立即应用）。 */
     internal fun wakeup() {
         lock.withLock {
-            ready.signalAll()
+            if (waiters > 0) ready.signalAll()
         }
     }
 
@@ -193,7 +194,7 @@ class AudioJitterQueue(
             releasing = true
             releasedAt = now
         }
-        if (releasing || (wasEmpty && tailFlushMillis > 0)) ready.signalAll()
+        if (waiters > 0 && (releasing || (wasEmpty && tailFlushMillis > 0))) ready.signalAll()
         return droppedNow
     }
 
@@ -229,7 +230,12 @@ class AudioJitterQueue(
                     waitNanos
                 }
                 val before = clockNanos()
-                val left = ready.awaitNanos(stepWait)
+                waiters++
+                val left = try {
+                    ready.awaitNanos(stepWait)
+                } finally {
+                    waiters--
+                }
                 val spent = if (stepWait == waitNanos) waitNanos - left.coerceAtLeast(0L) else (clockNanos() - before).coerceAtLeast(1L)
                 waitNanos -= spent
             }

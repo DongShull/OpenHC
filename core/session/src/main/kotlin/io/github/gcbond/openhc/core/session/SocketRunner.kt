@@ -12,9 +12,9 @@ import java.net.Socket
 import java.util.concurrent.ArrayBlockingQueue
 import java.util.concurrent.ConcurrentHashMap
 import java.util.concurrent.CountDownLatch
-import java.util.concurrent.LinkedBlockingQueue
 import java.util.concurrent.TimeUnit
 import java.util.concurrent.atomic.AtomicBoolean
+import java.util.concurrent.locks.ReentrantLock
 
 /**
  * 用 java.net 阻塞 I/O 执行 [SessionLogic] 给出的动作，安卓和电脑通用（不引用安卓类）。
@@ -77,6 +77,49 @@ class SocketRunner(
         class Failed(val id: Int, val message: String) : Input()
         class Task(val block: (Long) -> List<SessionOutput>) : Input()
         object Stop : Input()
+    }
+
+    /** 双优先级输入队列：控制、音频与交互任务优先于视频大数据块出队；同优先级内部严格先进先出。 */
+    private class InputQueue {
+        private val lock = ReentrantLock()
+        private val notEmpty = lock.newCondition()
+        private val high = java.util.ArrayDeque<Input>()
+        private val normal = java.util.ArrayDeque<Input>()
+
+        fun add(input: Input, highPriority: Boolean) {
+            lock.lock()
+            try {
+                val wasEmpty = high.isEmpty() && normal.isEmpty()
+                if (highPriority) high.addLast(input) else normal.addLast(input)
+                if (wasEmpty) notEmpty.signal()
+            } finally {
+                lock.unlock()
+            }
+        }
+
+        fun poll(): Input? {
+            lock.lock()
+            try {
+                return high.pollFirst() ?: normal.pollFirst()
+            } finally {
+                lock.unlock()
+            }
+        }
+
+        fun poll(timeoutMillis: Long): Input? {
+            var remaining = TimeUnit.MILLISECONDS.toNanos(timeoutMillis.coerceAtLeast(0))
+            lock.lock()
+            try {
+                while (true) {
+                    val next = high.pollFirst() ?: normal.pollFirst()
+                    if (next != null) return next
+                    if (remaining <= 0L) return null
+                    remaining = notEmpty.awaitNanos(remaining)
+                }
+            } finally {
+                lock.unlock()
+            }
+        }
     }
 
     /** 一条连接的读缓冲：固定几块轮流用。资源关闭时放入零长哨兵唤醒阻塞读线程，日常无超时轮询开销。 */
@@ -192,7 +235,7 @@ class SocketRunner(
             val out = try {
                 socket.getOutputStream()
             } catch (e: IOException) {
-                if (!closed.get()) post(Input.Failed(id, "取输出流失败：${describe(e)}"))
+                if (!closed.get()) post(Input.Failed(id, "取输出流失败：${describe(e)}"), channel)
                 forceClose()
                 return
             }
@@ -228,7 +271,7 @@ class SocketRunner(
                             out.write(payload, 0, payloadLen)
                         } catch (e: IOException) {
                             if (!closed.get()) {
-                                post(Input.Failed(id, "写 $payloadLen 字节失败：${describe(e)}"))
+                                post(Input.Failed(id, "写 $payloadLen 字节失败：${describe(e)}"), channel)
                             }
                             break
                         }
@@ -242,14 +285,20 @@ class SocketRunner(
         override fun closeSocket() = closeQuietly(socket)
     }
 
-    private inner class UdpResource(id: Int, val socket: DatagramSocket, buffers: Int, size: Int) : Resource(id) {
+    private inner class UdpResource(
+        id: Int,
+        val channel: SessionChannel,
+        val socket: DatagramSocket,
+        buffers: Int,
+        size: Int,
+    ) : Resource(id) {
         val pool = BufferPool(buffers, size)
         val recvPacket = DatagramPacket(ByteArray(0), 0)
         override fun onForceClose() = pool.close()
         override fun closeSocket() = closeQuietly(socket)
     }
 
-    private val queue = LinkedBlockingQueue<Input>()
+    private val queue = InputQueue()
 
     /** 同步动作的结果（监听开好、写失败等），在当前这批动作执行完后、处理下一个外部输入之前交给会话。只在协议线程上用。 */
     private val immediate = java.util.ArrayDeque<() -> List<SessionOutput>>()
@@ -284,18 +333,19 @@ class SocketRunner(
         }
         val thread = Thread({ runLoop() }, options.threadName)
         thread.isDaemon = true
+        thread.priority = Thread.MAX_PRIORITY
         loopThread = thread
         thread.start()
     }
 
     /** 请求本机结束会话（会话按协议收尾）。不阻塞，可以从任何线程调用、重复调用。 */
     fun stop() {
-        queue.add(Input.Stop)
+        queue.add(Input.Stop, highPriority = true)
     }
 
     /** 在协议线程上执行 [task]（例如 `session.sendInput(…)`），执行它返回的动作。参数是当前单调时钟毫秒。 */
     fun submit(task: (Long) -> List<SessionOutput>) {
-        queue.add(Input.Task(task))
+        queue.add(Input.Task(task), highPriority = true)
     }
 
     /** 等协议线程结束（全部资源已关闭、全部线程已退出）。 */
@@ -325,7 +375,7 @@ class SocketRunner(
         abandoned = true
         val all = synchronized(lock) { allResources.toList() }
         for (resource in all) resource.forceClose()
-        queue.add(Input.Stop)
+        queue.add(Input.Stop, highPriority = true)
         if (!awaitTermination(options.stopGraceMillis)) options.log("强制关闭后协议线程仍未结束")
     }
 
@@ -473,6 +523,7 @@ class SocketRunner(
         val socket = Socket()
         try {
             socket.tcpNoDelay = true
+            applySocketQos(socket, action.channel)
             if (action.channel == SessionChannel.VIDEO && isDefaultBuffering()) {
                 socket.receiveBufferSize = VIDEO_SOCKET_RCVBUF_BYTES
             }
@@ -491,16 +542,17 @@ class SocketRunner(
                 socket.connect(InetSocketAddress(InetAddress.getByName(action.host), action.port), options.connectTimeoutMillis)
                 try {
                     socket.tcpNoDelay = true
+                    applySocketQos(socket, action.channel)
                 } catch (e: IOException) {
                     // 同上。
                 }
             } catch (e: IOException) {
                 if (!connection.closed.get()) {
-                    post(Input.Failed(action.id, "连接 ${action.host}:${action.port} 失败：${describe(e)}"))
+                    post(Input.Failed(action.id, "连接 ${action.host}:${action.port} 失败：${describe(e)}"), action.channel)
                 }
                 return@newThread
             }
-            post(Input.Connected(action.id))
+            post(Input.Connected(action.id), action.channel)
             readLoop(connection)
         }
         if (!register(connection, thread)) {
@@ -523,6 +575,7 @@ class SocketRunner(
         var socket: DatagramSocket? = null
         try {
             socket = DatagramSocket(InetSocketAddress(InetAddress.getByName(action.localHost), 0))
+            applyDatagramQos(socket, action.channel)
             socket.connect(InetSocketAddress(InetAddress.getByName(action.remoteHost), action.remotePort))
         } catch (e: IOException) {
             socket?.let { closeQuietly(it) }
@@ -530,7 +583,7 @@ class SocketRunner(
             immediate.add { session.onIoError(action.id, message, now()) }
             return
         }
-        val udp = UdpResource(action.id, socket, buffersFor(action.channel), udpBufferSizeFor(action.channel))
+        val udp = UdpResource(action.id, action.channel, socket, buffersFor(action.channel), udpBufferSizeFor(action.channel))
         val thread = newThread(action.channel, action.id) { udpLoop(udp) }
         if (!register(udp, thread)) {
             closeQuietly(socket)
@@ -543,12 +596,13 @@ class SocketRunner(
         val socket: DatagramSocket
         try {
             socket = DatagramSocket(InetSocketAddress(InetAddress.getByName(action.localHost), action.localPort))
+            applyDatagramQos(socket, action.channel)
         } catch (e: IOException) {
             val message = "绑 UDP（${action.localHost}:${action.localPort}）失败：${describe(e)}"
             immediate.add { session.onIoError(action.id, message, now()) }
             return
         }
-        val udp = UdpResource(action.id, socket, buffersFor(action.channel), udpBufferSizeFor(action.channel))
+        val udp = UdpResource(action.id, action.channel, socket, buffersFor(action.channel), udpBufferSizeFor(action.channel))
         val thread = newThread(action.channel, action.id) { udpLoop(udp) }
         if (!register(udp, thread)) {
             closeQuietly(socket)
@@ -629,11 +683,12 @@ class SocketRunner(
                 closeQuietly(candidate)
             }
         } catch (e: IOException) {
-            if (!listener.closed.get()) post(Input.Failed(action.id, "${action.channel.label}监听出错：${describe(e)}"))
+            if (!listener.closed.get()) post(Input.Failed(action.id, "${action.channel.label}监听出错：${describe(e)}"), action.channel)
             return
         }
         try {
             socket.tcpNoDelay = true
+            applySocketQos(socket, action.channel)
         } catch (e: IOException) {
             // 个别平台不支持设套接字选项时照常继续。
         }
@@ -651,7 +706,7 @@ class SocketRunner(
         rejectExtraConnections(listener, action)
         val address = socket.inetAddress
         val remote = (address as? Inet4Address)?.hostAddress ?: address?.hostAddress ?: ""
-        post(Input.Accepted(action.acceptId, remote))
+        post(Input.Accepted(action.acceptId, remote), action.channel)
         readLoop(connection)
     }
 
@@ -689,7 +744,7 @@ class SocketRunner(
         val input = try {
             connection.socket.getInputStream()
         } catch (e: IOException) {
-            if (!connection.closed.get()) post(Input.Failed(connection.id, "取输入流失败：${describe(e)}"))
+            if (!connection.closed.get()) post(Input.Failed(connection.id, "取输入流失败：${describe(e)}"), connection.channel)
             return
         }
         while (true) {
@@ -698,19 +753,19 @@ class SocketRunner(
                 input.read(buffer)
             } catch (e: IOException) {
                 connection.pool.give(buffer)
-                if (!connection.closed.get()) post(Input.Failed(connection.id, "读失败：${describe(e)}"))
+                if (!connection.closed.get()) post(Input.Failed(connection.id, "读失败：${describe(e)}"), connection.channel)
                 return
             }
             if (n < 0) {
                 connection.pool.give(buffer)
-                if (!connection.closed.get()) post(Input.Closed(connection.id))
+                if (!connection.closed.get()) post(Input.Closed(connection.id), connection.channel)
                 return
             }
             if (n == 0) {
                 connection.pool.give(buffer)
                 continue
             }
-            post(Input.Data(connection.id, buffer, n, connection.pool))
+            post(Input.Data(connection.id, buffer, n, connection.pool), connection.channel)
         }
     }
 
@@ -723,10 +778,10 @@ class SocketRunner(
                 udp.socket.receive(packet)
             } catch (e: IOException) {
                 udp.pool.give(buffer)
-                if (!udp.closed.get()) post(Input.Failed(udp.id, "收 UDP 失败：${describe(e)}"))
+                if (!udp.closed.get()) post(Input.Failed(udp.id, "收 UDP 失败：${describe(e)}"), udp.channel)
                 return
             }
-            post(Input.Datagram(udp.id, buffer, packet.length, udp.pool))
+            post(Input.Datagram(udp.id, buffer, packet.length, udp.pool), udp.channel)
         }
     }
 
@@ -739,7 +794,7 @@ class SocketRunner(
         if (!isDefaultBuffering()) return options.buffersPerConnection
         return when (channel) {
             SessionChannel.VIDEO -> 8
-            SessionChannel.AUDIO -> 4
+            SessionChannel.AUDIO -> 8
             SessionChannel.REMOTE_CONTROL, SessionChannel.MIC -> 1
             else -> 2
         }
@@ -763,8 +818,40 @@ class SocketRunner(
         }
     }
 
-    private fun post(input: Input) {
-        queue.add(input)
+    private fun applySocketQos(socket: Socket, channel: SessionChannel) {
+        try {
+            socket.trafficClass = trafficClassFor(channel)
+        } catch (_: IOException) {
+            // 忽略不支持 TOS / DSCP 的内核或协议栈。
+        } catch (_: IllegalArgumentException) {
+            // 忽略不支持 TOS 的平台。
+        }
+    }
+
+    private fun applyDatagramQos(socket: DatagramSocket, channel: SessionChannel) {
+        try {
+            socket.trafficClass = trafficClassFor(channel)
+        } catch (_: IOException) {
+            // 忽略不支持 TOS / DSCP 的内核或协议栈。
+        } catch (_: IllegalArgumentException) {
+            // 忽略不支持 TOS 的平台。
+        }
+    }
+
+    private fun trafficClassFor(channel: SessionChannel): Int = when (channel) {
+        SessionChannel.AUDIO,
+        SessionChannel.REMOTE_CONTROL,
+        SessionChannel.CONTROL,
+        SessionChannel.DMSDP_CONTROL,
+        SessionChannel.HISIGHT_CONTROL,
+        SessionChannel.KEEPALIVE,
+        -> TOS_VOICE_EXPEDITED
+        SessionChannel.VIDEO -> TOS_VIDEO_AF41
+        else -> TOS_LOW_DELAY
+    }
+
+    private fun post(input: Input, channel: SessionChannel) {
+        queue.add(input, highPriority = channel != SessionChannel.VIDEO)
     }
 
     private fun lookup(id: Int): Resource? = resources[id]
@@ -800,6 +887,9 @@ class SocketRunner(
         const val MAX_QUEUED_WRITES = 128
         const val WRITE_COALESCE_BYTES = 8 * 1024
         const val MAX_DRAIN_BURST = 16
+        const val TOS_VOICE_EXPEDITED = 0xB8
+        const val TOS_VIDEO_AF41 = 0x88
+        const val TOS_LOW_DELAY = 0x10
 
         /** 没有定时任务时协议线程最长等多久再看一眼。 */
         const val IDLE_WAIT_MILLIS = 1_000L

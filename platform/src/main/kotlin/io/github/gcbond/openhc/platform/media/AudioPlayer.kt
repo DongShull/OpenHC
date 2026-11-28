@@ -249,8 +249,10 @@ class AudioPlayer(
         }
         try {
             ensureTrack(format.sampleRate, format.channels)
+            // AAC 先把解码器建起来，首包攒够时立即送解，省掉首包才开解码器的几十毫秒冷启动。
+            if (format.encoding == Encoding.AAC && !dead) createDecoder(null)
             while (!closed && !dead) {
-                val chunk = queue.take(if (playing) POLL_MILLIS else IDLE_POLL_MILLIS)
+                val chunk = queue.take(pollTimeoutMillis())
                 applyVolume(false)
                 reportDrops()
                 if (chunk == null) {
@@ -275,6 +277,19 @@ class AudioPlayer(
         } finally {
             release()
         }
+    }
+
+    private fun pollTimeoutMillis(): Long {
+        if (!playing) return IDLE_POLL_MILLIS
+        val t = track ?: return POLL_MILLIS
+        val left = remainingTrackFrames(t)
+        val window = trackRate.toLong() * LOW_WATER_WINDOW_MILLIS / 1000
+        return if (left <= window) LOW_WATER_POLL_MILLIS else POLL_MILLIS
+    }
+
+    private fun remainingTrackFrames(t: AudioTrack): Long {
+        val head = t.playbackHeadPosition.toLong() and UINT32
+        return (framesWritten - head).toInt().toLong().coerceAtLeast(0L)
     }
 
     private fun ensureTrack(sampleRate: Int, channels: Int): AudioTrack? {
@@ -351,13 +366,22 @@ class AudioPlayer(
         return if (format.encoding == Encoding.AAC || trackRate == format.sampleRate) frames else frames * trackRate / format.sampleRate
     }
 
-    /** 写一段 16 位小端 PCM；没在放就先开始放（数据已经攒够了才会到这里）。 */
+    /** 写一段 16 位小端 PCM；没在放就先预填再开始放（数据已经攒够了才会到这里）。 */
     private fun writePcm(data: ByteArray, offset: Int, length: Int) {
         val t = track ?: return
+        var done = 0
         if (!playing) {
+            // 停着时先非阻塞填进第一块，再 play()，避免刚起播瞬间空缓冲触发欠载。
+            val prefill = t.write(data, offset, length, AudioTrack.WRITE_NON_BLOCKING)
+            if (prefill < 0) {
+                fatal("AudioTrack.write 返回 $prefill")
+                return
+            }
+            done = prefill
+            framesWritten += prefill / trackFrameBytes
             t.play()
             playing = true
-            val buffered = (queue.bufferedFrames + length / trackFrameBytes) * 1000 / trackRate
+            val buffered = (queue.bufferedFrames + (length - prefill) / trackFrameBytes + remainingTrackFrames(t)) * 1000 / trackRate
             if (!started) {
                 started = true
                 emit(Event.Started(buffered))
@@ -365,7 +389,6 @@ class AudioPlayer(
                 emit(Event.Resumed(buffered))
             }
         }
-        var done = 0
         while (done < length && !closed) {
             val n = t.write(data, offset + done, length - done, AudioTrack.WRITE_BLOCKING)
             if (n < 0) {
@@ -374,8 +397,8 @@ class AudioPlayer(
             }
             if (n == 0) break
             done += n
+            framesWritten += n / trackFrameBytes
         }
-        framesWritten += done / trackFrameBytes
     }
 
     /** 调用方要的音量变了（或刚建好音轨，[force]）就设到音轨上。 */
@@ -395,9 +418,7 @@ class AudioPlayer(
     private fun checkStarved() {
         val t = track ?: return
         if (!playing || queue.bufferedFrames > 0) return
-        val head = t.playbackHeadPosition.toLong() and UINT32
-        val left = (framesWritten - head) and UINT32
-        if (left > trackRate.toLong() * LOW_WATER_MILLIS / 1000) return
+        if (remainingTrackFrames(t) > trackRate.toLong() * LOW_WATER_MILLIS / 1000) return
         t.pause()
         playing = false
         queue.onStarved()
@@ -431,19 +452,30 @@ class AudioPlayer(
         }
         val codec = decoder ?: createDecoder(adts) ?: return
         try {
-            drain(codec, 0L)
-            val index = codec.dequeueInputBuffer(INPUT_TIMEOUT_US)
-            if (index >= 0) {
-                val input: ByteBuffer = codec.getInputBuffer(index) ?: return
-                input.clear()
-                input.put(unit, from, to - from)
-                codec.queueInputBuffer(index, 0, to - from, presentationUs, 0)
-                val stepRate = if (decoderRate > 0) decoderRate else format.sampleRate
-                presentationUs += AacConfig.SAMPLES_PER_FRAME * 1_000_000L / stepRate
-                decoderInFrames += AacConfig.SAMPLES_PER_FRAME
+            var queued = false
+            for (attempt in 0 until MAX_INPUT_RETRIES) {
+                if (closed || dead) return
+                drain(codec, 0L)
+                if (closed || dead) return
+                val index = codec.dequeueInputBuffer(INPUT_TIMEOUT_US)
+                if (index >= 0) {
+                    val input: ByteBuffer = codec.getInputBuffer(index) ?: return
+                    input.clear()
+                    input.put(unit, from, to - from)
+                    codec.queueInputBuffer(index, 0, to - from, presentationUs, 0)
+                    val stepRate = if (decoderRate > 0) decoderRate else format.sampleRate
+                    presentationUs += AacConfig.SAMPLES_PER_FRAME * 1_000_000L / stepRate
+                    decoderInFrames += AacConfig.SAMPLES_PER_FRAME
+                    queued = true
+                    break
+                }
+                // 输入缓冲暂时被输出占用：先排空输出并写音轨再重试，不丢这一帧音乐。
+                drain(codec, OUTPUT_WAIT_US)
             }
-            // 刚送进去的这一帧给解码器几毫秒解出来，马上写进音轨；否则它要在解码器里等下一包，起播缓冲白白少一截。
-            drain(codec, OUTPUT_WAIT_US)
+            if (!queued) return
+            // 队列里还有待解包时缩短等待，尽快继续喂；无后续包时多等一会儿立刻取出。
+            val waitUs = if (queue.bufferedFrames > 0) OUTPUT_WAIT_BURST_US else OUTPUT_WAIT_US
+            drain(codec, waitUs)
         } catch (e: Exception) {
             decoderFailed("解码出错：${e.javaClass.simpleName}：${e.message}")
         }
@@ -463,11 +495,8 @@ class AudioPlayer(
         val rate = adts?.sampleRate ?: format.sampleRate
         val channels = if (adts != null && adts.channelConfig in 1..2) adts.channelConfig else format.channels
         return try {
-            val mediaFormat = MediaFormat.createAudioFormat(MediaFormat.MIMETYPE_AUDIO_AAC, rate, channels)
-            mediaFormat.setByteBuffer("csd-0", ByteBuffer.wrap(csd))
-            val codec = MediaCodec.createDecoderByType(MediaFormat.MIMETYPE_AUDIO_AAC)
-            codec.configure(mediaFormat, null, null, 0)
-            codec.start()
+            val codec = configureAacCodec(rate, channels, csd, realtime = true)
+                ?: configureAacCodec(rate, channels, csd, realtime = false)
             decoder = codec
             decoderRate = rate
             decoderChannels = channels
@@ -475,6 +504,21 @@ class AudioPlayer(
         } catch (e: Exception) {
             decoderFailed("建不起 AAC 解码器：${e.javaClass.simpleName}：${e.message}")
             null
+        }
+    }
+
+    private fun configureAacCodec(rate: Int, channels: Int, csd: ByteArray, realtime: Boolean): MediaCodec? {
+        val mediaFormat = MediaFormat.createAudioFormat(MediaFormat.MIMETYPE_AUDIO_AAC, rate, channels)
+        mediaFormat.setByteBuffer("csd-0", ByteBuffer.wrap(csd))
+        if (realtime) mediaFormat.setInteger(MediaFormat.KEY_PRIORITY, 0)
+        val codec = MediaCodec.createDecoderByType(MediaFormat.MIMETYPE_AUDIO_AAC)
+        return try {
+            codec.configure(mediaFormat, null, null, 0)
+            codec.start()
+            codec
+        } catch (e: RuntimeException) {
+            codec.release()
+            if (realtime) null else throw e
         }
     }
 
@@ -571,17 +615,21 @@ class AudioPlayer(
 
     private companion object {
         const val POLL_MILLIS = 10L
+        const val LOW_WATER_POLL_MILLIS = 3L
         const val IDLE_POLL_MILLIS = 250L
         const val TAIL_FLUSH_MILLIS = 80L
         const val STALE_DISCARD_MILLIS = 2_500L
         const val LATENCY_REFRESH_NANOS = 250_000_000L
 
         /** AudioTrack 里剩下不到这么多毫秒、队列又空着，就算放空。 */
-        const val LOW_WATER_MILLIS = 10L
+        const val LOW_WATER_MILLIS = 2L
+        const val LOW_WATER_WINDOW_MILLIS = 12L
         const val INPUT_TIMEOUT_US = 10_000L
+        const val MAX_INPUT_RETRIES = 5
 
-        /** 送进一帧后等它解出来的上限。 */
+        /** 送进一帧后等它解出来的上限；队列里还有待解包时缩短等待避免拖慢补流。 */
         const val OUTPUT_WAIT_US = 5_000L
+        const val OUTPUT_WAIT_BURST_US = 1_000L
         const val MAX_DECODER_ERRORS = 5
         const val PCM_SCRATCH = 16 * 1024
         const val UINT32 = 0xFFFF_FFFFL
