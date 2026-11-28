@@ -221,11 +221,13 @@ private fun StreamChips(selected: Int, onSelect: (Int) -> Unit) {
     ) {
         items(choices, key = { it }) { value ->
             val on = value == selected
+            val chipShape = RoundedCornerShape(7.dp)
             Box(
                 Modifier
                     .width(CHIP_WIDTH)
-                    .clip(RoundedCornerShape(7.dp))
+                    .clip(chipShape)
                     .background(if (on) Palette.SegmentSelected else Color.Transparent)
+                    .dpadFocusRing(chipShape)
                     .selectable(selected = on, role = Role.RadioButton) { onSelect(value) }
                     .padding(vertical = if (compact) 5.dp else 7.dp),
                 contentAlignment = Alignment.Center,

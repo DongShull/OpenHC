@@ -477,6 +477,7 @@ private fun CockpitOverviewColumn(
                 .clip(stripShape)
                 .background(Palette.Card)
                 .border(1.dp, Palette.CardBorder, stripShape)
+                .dpadFocusRing(stripShape)
                 .clickable(role = Role.Button, onClick = onOpenSettings)
                 .padding(horizontal = 16.dp, vertical = if (compact) 10.dp else 13.dp),
             verticalAlignment = Alignment.CenterVertically,
@@ -521,7 +522,7 @@ private fun OverviewModeCard(
             .clip(shape)
             .background(Palette.Card)
             .border(1.dp, borderColor, shape)
-            .then(if (onClick != null) Modifier.clickable(role = Role.Button, onClick = onClick) else Modifier)
+            .then(if (onClick != null) Modifier.dpadFocusRing(shape).clickable(role = Role.Button, onClick = onClick) else Modifier)
             .padding(horizontal = 20.dp, vertical = if (compact) 14.dp else 18.dp),
         verticalArrangement = Arrangement.Center,
     ) {

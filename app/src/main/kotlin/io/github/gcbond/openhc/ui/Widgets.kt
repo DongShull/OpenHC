@@ -58,11 +58,14 @@ import androidx.compose.ui.Modifier
 import androidx.compose.ui.draw.alpha
 import androidx.compose.ui.draw.clip
 import androidx.compose.ui.draw.drawBehind
+import androidx.compose.ui.focus.onFocusChanged
 import androidx.compose.ui.geometry.Offset
 import androidx.compose.ui.geometry.Rect
 import androidx.compose.ui.geometry.Size
 import androidx.compose.ui.graphics.Color
 import androidx.compose.ui.graphics.Path
+import androidx.compose.ui.graphics.RectangleShape
+import androidx.compose.ui.graphics.Shape
 import androidx.compose.ui.graphics.drawscope.Stroke
 import androidx.compose.ui.graphics.vector.ImageVector
 import androidx.compose.ui.layout.layout
@@ -89,6 +92,18 @@ import io.github.gcbond.openhc.R
 import kotlinx.coroutines.delay
 
 // 首页和设置页共用的控件。全部自己画（不用系统开关、单选框），深浅两套配色下样子才可控。
+
+/**
+ * 遥控器 / 方向键焦点外框：放在 clickable / selectable / toggleable 之前，
+ * 仅在非触屏设备方向键聚焦到控件时画出清晰高亮边框，触屏操作时完全不出现。
+ */
+@Composable
+internal fun Modifier.dpadFocusRing(shape: Shape = RectangleShape): Modifier {
+    var focused by remember { mutableStateOf(false) }
+    return this
+        .onFocusChanged { focused = it.isFocused }
+        .then(if (focused) Modifier.border(2.5.dp, Palette.FocusRing, shape) else Modifier)
+}
 
 // ------------------------------------------------------------------ 页面骨架
 
@@ -136,6 +151,7 @@ internal fun TopBarButton(text: String, onClick: () -> Unit, modifier: Modifier 
             .heightIn(min = if (compact) 40.dp else 44.dp)
             .clip(shape)
             .background(Palette.Button)
+            .dpadFocusRing(shape)
             .clickable(role = Role.Button, onClick = onClick)
             .padding(start = if (glyph != null) 14.dp else 18.dp, end = 18.dp),
         verticalAlignment = Alignment.CenterVertically,
@@ -409,6 +425,7 @@ internal fun WarnBanner(text: String, modifier: Modifier = Modifier, action: Str
                     .clip(btnShape)
                     .background(Palette.Warn.copy(alpha = 0.14f))
                     .border(1.dp, Palette.Warn, btnShape)
+                    .dpadFocusRing(btnShape)
                     .clickable(role = Role.Button, onClick = onAction)
                     .padding(horizontal = 16.dp),
                 contentAlignment = Alignment.Center,
@@ -441,6 +458,7 @@ internal fun PillButton(
             .alpha(if (enabled) 1f else DISABLED_ALPHA)
             .clip(shape)
             .background(if (primary) Palette.On else Palette.Button)
+            .dpadFocusRing(shape)
             .clickable(enabled = enabled, role = Role.Button, onClick = onClick)
             .padding(horizontal = 24.dp, vertical = 6.dp),
         verticalAlignment = Alignment.CenterVertically,
@@ -482,6 +500,7 @@ internal fun ActionButton(
             .alpha(if (enabled) 1f else DISABLED_ALPHA)
             .clip(shape)
             .background(background)
+            .dpadFocusRing(shape)
             .clickable(enabled = enabled, role = Role.Button, onClick = onClick)
             .padding(horizontal = 16.dp, vertical = 6.dp),
         contentAlignment = Alignment.Center,
@@ -626,6 +645,7 @@ internal fun SwitchRow(
         Modifier
             .fillMaxWidth()
             .groupDivider()
+            .dpadFocusRing()
             .toggleable(value = checked, enabled = enabled, role = Role.Switch, onValueChange = onCheckedChange)
             .rowPadding(compact)
             .alpha(if (enabled) 1f else DISABLED_ALPHA),
@@ -848,6 +868,7 @@ private fun OptionCard(option: CardOption, selected: Boolean, modifier: Modifier
                 color = if (selected) Palette.Accent else Palette.CardBorder,
                 shape = shape,
             )
+            .dpadFocusRing(shape)
             .selectable(selected = selected, role = Role.RadioButton, onClick = onClick)
             .padding(horizontal = 16.dp, vertical = if (compact) 11.dp else 14.dp),
     ) {
@@ -896,6 +917,7 @@ internal fun ValueRow(
         Modifier
             .fillMaxWidth()
             .groupDivider()
+            .dpadFocusRing()
             .clickable(role = Role.Button, onClick = onClick)
             .rowPadding(compact),
         verticalAlignment = Alignment.CenterVertically,
@@ -1015,6 +1037,7 @@ private fun HelpButton(shown: Boolean, onClick: () -> Unit) {
             .padding(start = 2.dp)
             .size(if (compact) 30.dp else 34.dp)
             .clip(CircleShape)
+            .dpadFocusRing(CircleShape)
             .clickable(role = Role.Button, onClick = onClick)
             .semantics {
                 contentDescription = label
@@ -1094,6 +1117,7 @@ private fun Segmented(options: List<String>, selected: Int, onSelect: (Int) -> U
                             Modifier
                         },
                     )
+                    .dpadFocusRing(itemShape)
                     .selectable(selected = on, role = Role.RadioButton) { onSelect(index) }
                     .padding(horizontal = 12.dp),
                 contentAlignment = Alignment.Center,

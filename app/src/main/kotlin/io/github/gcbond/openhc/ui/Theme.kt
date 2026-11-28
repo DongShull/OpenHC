@@ -107,6 +107,9 @@ internal object Palette {
     /** 太阳、月亮选中时的颜色。 */
     val Sun get() = Color(0xFFF59E0B)
     val Moon get() = Color(0xFFFBBF24)
+
+    /** 遥控器 / 方向键焦点高光框（触屏模式下不触发，仅非触屏焦点导航时显示）。 */
+    val FocusRing get() = if (dark) Color(0xFFF8FAFC) else Color(0xFF007AFF)
 }
 
 /** 干净的哑光座舱底色，不做花哨渐变。 */

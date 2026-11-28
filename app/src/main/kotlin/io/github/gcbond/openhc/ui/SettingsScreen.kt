@@ -193,6 +193,7 @@ private fun SettingsSidebar(
                     .size(if (compact) 36.dp else 40.dp)
                     .clip(CircleShape)
                     .background(Palette.Button)
+                    .dpadFocusRing(CircleShape)
                     .clickable(role = Role.Button, onClick = onBack),
                 contentAlignment = Alignment.Center,
             ) {
@@ -309,12 +310,14 @@ private fun CategoryContent(
 @Composable
 private fun NavItem(category: SettingsCategory, selected: Boolean, onClick: () -> Unit) {
     val compact = LocalCompact.current
+    val shape = RoundedCornerShape(12.dp)
     Row(
         Modifier
             .fillMaxWidth()
             .heightIn(min = if (compact) 44.dp else 48.dp)
-            .clip(RoundedCornerShape(12.dp))
+            .clip(shape)
             .background(if (selected) Palette.NavSelected else Color.Transparent)
+            .dpadFocusRing(shape)
             .selectable(selected = selected, role = Role.Tab, onClick = onClick)
             .padding(horizontal = 14.dp),
         verticalAlignment = Alignment.CenterVertically,

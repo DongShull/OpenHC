@@ -75,6 +75,7 @@ private fun ThemeTextChoice(
             .clip(shape)
             .background(if (selected) Palette.SegmentSelected else Color.Transparent)
             .then(if (selected) Modifier.border(0.5.dp, Palette.SegmentSelectedBorder, shape) else Modifier)
+            .dpadFocusRing(shape)
             .selectable(selected = selected, role = Role.RadioButton, onClick = onClick),
         contentAlignment = Alignment.Center,
     ) {
@@ -103,6 +104,7 @@ private fun ThemeChoice(
             .clip(shape)
             .background(if (selected) Palette.SegmentSelected else Color.Transparent)
             .then(if (selected) Modifier.border(0.5.dp, Palette.SegmentSelectedBorder, shape) else Modifier)
+            .dpadFocusRing(shape)
             .selectable(selected = selected, role = Role.RadioButton, onClick = onClick),
         contentAlignment = Alignment.Center,
     ) {
