@@ -63,7 +63,6 @@ import androidx.compose.ui.text.style.TextAlign
 import androidx.compose.ui.text.style.TextOverflow
 import androidx.compose.ui.unit.dp
 import androidx.compose.ui.unit.sp
-import io.github.gcbond.openhc.BuildConfig
 import io.github.gcbond.openhc.R
 import io.github.gcbond.openhc.connection.ScreenSpec
 import io.github.gcbond.openhc.settings.AppSettings
@@ -266,11 +265,9 @@ private fun SettingsSidebar(
             }
         }
 
-        Text(
-            stringResource(R.string.home_version, BuildConfig.VERSION_NAME),
-            style = UiType.footer(compact),
-            color = Palette.Muted,
-            modifier = Modifier.padding(start = 12.dp, top = 12.dp),
+        VersionUpdateCard(
+            compact = compact,
+            modifier = Modifier.padding(top = 12.dp),
         )
     }
 }
@@ -441,13 +438,21 @@ private fun DetailFooter(compact: Boolean) {
 
 @Composable
 private fun NarrowVersionFooter() {
-    Text(
-        stringResource(R.string.home_version, BuildConfig.VERSION_NAME) + "\n" + stringResource(R.string.home_tagline),
-        style = UiType.footer(LocalCompact.current),
-        color = Palette.Muted,
-        textAlign = TextAlign.Center,
-        modifier = Modifier
+    val compact = LocalCompact.current
+    Column(
+        Modifier
             .fillMaxWidth()
-            .padding(top = 16.dp),
-    )
+            .padding(top = 8.dp),
+        verticalArrangement = Arrangement.spacedBy(10.dp),
+        horizontalAlignment = Alignment.CenterHorizontally,
+    ) {
+        VersionUpdateCard(compact = compact)
+        Text(
+            stringResource(R.string.home_tagline),
+            style = UiType.footer(compact),
+            color = Palette.Muted,
+            textAlign = TextAlign.Center,
+            modifier = Modifier.fillMaxWidth(),
+        )
+    }
 }

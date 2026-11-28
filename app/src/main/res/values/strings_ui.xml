@@ -95,4 +95,40 @@
     <string name="settings_subtitle_audio">车机扬声器传输编码、声道分流与麦克风</string>
     <string name="settings_subtitle_keys">方向盘按键与媒体控制映射</string>
     <string name="settings_subtitle_diagnostics">导出诊断报告与查看车机实时运行日志</string>
+
+    <!-- 侧边栏版本与 GitHub 更新卡片 -->
+    <string name="update_card_version">v%1$s</string>
+    <string name="update_badge_idle">检查更新</string>
+    <string name="update_badge_checking">检查中</string>
+    <string name="update_badge_latest">最新</string>
+    <string name="update_badge_available">有更新</string>
+    <string name="update_badge_downloading">%1$d%%</string>
+    <string name="update_badge_downloading_indet">下载中</string>
+    <string name="update_badge_ready">可安装</string>
+    <string name="update_badge_failed">重试</string>
+    <string name="update_sub_idle">点击检查 GitHub 新版本</string>
+    <string name="update_sub_checking">正在连接 GitHub 检查…</string>
+    <string name="update_sub_latest">已是最新版本 · GitHub</string>
+    <string name="update_sub_available">发现 v%1$s · 点击下载安装</string>
+    <string name="update_sub_downloading_direct">GitHub 直连下载中…</string>
+    <string name="update_sub_downloading_proxy">ghfast.top 加速下载中…</string>
+    <string name="update_sub_ready">v%1$s 已就绪 · 点击覆盖安装</string>
+    <string name="update_sub_failed">检查或下载失败 · 点击重试</string>
+    <string name="update_dialog_title">版本与更新</string>
+    <string name="update_dialog_current">当前版本</string>
+    <string name="update_dialog_latest">最新版本</string>
+    <string name="update_dialog_route_hint">下载策略：优先直连 GitHub，不通时自动切换 ghfast.top 加速</string>
+    <string name="update_dialog_route_direct">当前通道：GitHub 原始地址直连</string>
+    <string name="update_dialog_route_proxy">当前通道：直连不通，已自动切换 ghfast.top 加速</string>
+    <string name="update_dialog_verified">SHA-256 完整性校验已通过，可直接覆盖安装</string>
+    <string name="update_dialog_need_permission">系统尚未允许本应用安装未知来源安装包，点击下方按钮前往开启后再覆盖安装。</string>
+    <string name="update_action_check">检查更新</string>
+    <string name="update_action_download">下载并覆盖安装</string>
+    <string name="update_action_install">立即覆盖安装</string>
+    <string name="update_action_grant_install">去允许安装</string>
+    <string name="update_action_cancel">取消下载</string>
+    <string name="update_action_github">打开 GitHub</string>
+    <string name="update_action_close">关闭</string>
+    <string name="update_no_browser">车机未找到可用浏览器，请直接在应用内下载安装</string>
+    <string name="update_install_failed">调起系统安装器失败，请稍后重试</string>
 </resources>

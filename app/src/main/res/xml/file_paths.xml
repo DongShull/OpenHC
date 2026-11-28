@@ -1,0 +1,7 @@
+<?xml version="1.0" encoding="utf-8"?>
+<paths>
+    <!-- 应用内下载的新版本安装包缓存目录，供系统安装器通过 FileProvider 读取覆盖安装。 -->
+    <cache-path
+        name="updates"
+        path="updates/" />
+</paths>
