@@ -27,7 +27,7 @@ import androidx.compose.ui.unit.dp
 import io.github.gcbond.openhc.R
 import io.github.gcbond.openhc.settings.AppSettings
 
-/** 页面顶上正中的深浅色切换：自动（随车机大灯/昼夜切换）、太阳（浅色）、月亮（深色）。点了马上换、记进设置。 */
+/** 顶栏右侧的深浅色紧凑切换胶囊：自动（随车机大灯/昼夜切换）、浅色、深色。 */
 @Composable
 internal fun ThemeToggle(modifier: Modifier = Modifier) {
     val context = LocalContext.current
@@ -44,9 +44,9 @@ internal fun ThemeToggle(modifier: Modifier = Modifier) {
             .clip(RoundedCornerShape(percent = 50))
             .background(Palette.Card)
             .border(1.dp, Palette.CardBorder, RoundedCornerShape(percent = 50))
-            .padding(4.dp)
+            .padding(3.dp)
             .selectableGroup(),
-        horizontalArrangement = Arrangement.spacedBy(4.dp),
+        horizontalArrangement = Arrangement.spacedBy(2.dp),
     ) {
         ThemeTextChoice(
             label = stringResource(R.string.theme_auto),
@@ -69,11 +69,13 @@ private fun ThemeTextChoice(
     compact: Boolean,
     onClick: () -> Unit,
 ) {
+    val shape = RoundedCornerShape(percent = 50)
     Box(
         Modifier
-            .size(if (compact) 48.dp else 54.dp, if (compact) 36.dp else 40.dp)
-            .clip(RoundedCornerShape(percent = 50))
+            .size(if (compact) 44.dp else 48.dp, if (compact) 36.dp else 40.dp)
+            .clip(shape)
             .background(if (selected) Palette.Button else Color.Transparent)
+            .then(if (selected) Modifier.border(1.dp, Palette.ButtonBorder, shape) else Modifier)
             .selectable(selected = selected, role = Role.RadioButton, onClick = onClick),
         contentAlignment = Alignment.Center,
     ) {
@@ -95,14 +97,16 @@ private fun ThemeChoice(
     compact: Boolean,
     onClick: () -> Unit,
 ) {
+    val shape = RoundedCornerShape(percent = 50)
     Box(
         Modifier
-            .size(if (compact) 48.dp else 54.dp, if (compact) 36.dp else 40.dp)
-            .clip(RoundedCornerShape(percent = 50))
+            .size(if (compact) 40.dp else 44.dp, if (compact) 36.dp else 40.dp)
+            .clip(shape)
             .background(if (selected) Palette.Button else Color.Transparent)
+            .then(if (selected) Modifier.border(1.dp, Palette.ButtonBorder, shape) else Modifier)
             .selectable(selected = selected, role = Role.RadioButton, onClick = onClick),
         contentAlignment = Alignment.Center,
     ) {
-        Icon(glyph, contentDescription = label, tint = if (selected) selectedTint else Palette.Muted, modifier = Modifier.size(22.dp))
+        Icon(glyph, contentDescription = label, tint = if (selected) selectedTint else Palette.Muted, modifier = Modifier.size(19.dp))
     }
 }

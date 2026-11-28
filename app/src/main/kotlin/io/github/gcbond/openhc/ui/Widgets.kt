@@ -2,7 +2,12 @@ package io.github.gcbond.openhc.ui
 
 import androidx.compose.animation.AnimatedContent
 import androidx.compose.animation.SizeTransform
+import androidx.compose.animation.core.LinearEasing
+import androidx.compose.animation.core.RepeatMode
 import androidx.compose.animation.core.animateDpAsState
+import androidx.compose.animation.core.animateFloat
+import androidx.compose.animation.core.infiniteRepeatable
+import androidx.compose.animation.core.rememberInfiniteTransition
 import androidx.compose.animation.core.tween
 import androidx.compose.animation.fadeIn
 import androidx.compose.animation.fadeOut
@@ -56,8 +61,10 @@ import androidx.compose.ui.draw.drawBehind
 import androidx.compose.ui.geometry.Offset
 import androidx.compose.ui.geometry.Rect
 import androidx.compose.ui.geometry.Size
+import androidx.compose.ui.graphics.Brush
 import androidx.compose.ui.graphics.Color
 import androidx.compose.ui.graphics.Path
+import androidx.compose.ui.graphics.drawscope.Stroke
 import androidx.compose.ui.graphics.vector.ImageVector
 import androidx.compose.ui.layout.layout
 import androidx.compose.ui.layout.onSizeChanged
@@ -99,105 +106,298 @@ internal fun PageTitle(text: String, modifier: Modifier = Modifier) {
     )
 }
 
-/** 首页左上角的应用标记：蓝底圆角方块里「HC」。 */
+/** 首页左上角的应用标记：渐变动感蓝底圆角方块 + 车机投屏互联图形徽标。 */
 @Composable
 internal fun AppMark(modifier: Modifier = Modifier) {
     val compact = LocalCompact.current
+    val shape = RoundedCornerShape(13.dp)
     Box(
         modifier
-            .size(if (compact) 36.dp else 42.dp)
-            .clip(RoundedCornerShape(12.dp))
-            .background(Palette.On),
+            .size(if (compact) 38.dp else 44.dp)
+            .clip(shape)
+            .background(Brush.linearGradient(listOf(Palette.OnGradientStart, Palette.OnGradientEnd)))
+            .border(1.dp, Color.White.copy(alpha = 0.22f), shape),
         contentAlignment = Alignment.Center,
     ) {
-        Text("HC", style = TextStyle(fontSize = if (compact) 14.sp else 16.sp, fontWeight = FontWeight.Bold), color = Palette.OnAccent)
+        Icon(
+            Glyphs.CarLink,
+            contentDescription = null,
+            tint = Palette.OnAccent,
+            modifier = Modifier.size(if (compact) 21.dp else 24.dp),
+        )
     }
 }
 
-/** 顶栏的「设置」「返回」：图标加字的圆角按钮。 */
+/** 顶栏的「设置」「返回」：带微描边的圆角胶囊按钮。 */
 @Composable
 internal fun TopBarButton(text: String, onClick: () -> Unit, modifier: Modifier = Modifier, glyph: ImageVector? = null) {
     val compact = LocalCompact.current
+    val shape = RoundedCornerShape(percent = 50)
     Row(
         modifier
-            .heightIn(min = if (compact) 44.dp else 50.dp)
-            .clip(RoundedCornerShape(14.dp))
+            .heightIn(min = if (compact) 42.dp else 46.dp)
+            .clip(shape)
             .background(Palette.Button)
+            .border(1.dp, Palette.ButtonBorder, shape)
             .clickable(role = Role.Button, onClick = onClick)
             .padding(start = if (glyph != null) 14.dp else 18.dp, end = 18.dp),
         verticalAlignment = Alignment.CenterVertically,
         horizontalArrangement = Arrangement.spacedBy(8.dp),
     ) {
-        if (glyph != null) Icon(glyph, contentDescription = null, tint = Palette.ButtonText, modifier = Modifier.size(22.dp))
+        if (glyph != null) Icon(glyph, contentDescription = null, tint = Palette.ButtonText, modifier = Modifier.size(20.dp))
         Text(text, style = UiType.topButton, color = Palette.ButtonText, maxLines = 1)
     }
 }
 
 /**
- * 顶栏：左边 [start]，右边 [end]，正中是深浅色切换。宽度不够把切换摆正中时（竖屏、小屏），切换挪到右边那组的前面。
+ * 顶栏：左侧 [start]（品牌 + 状态或返回 + 标题），右侧 [end]（操作按钮与主题切换）。
  */
 @Composable
-internal fun TopBar(start: @Composable RowScope.() -> Unit, end: @Composable RowScope.() -> Unit, modifier: Modifier = Modifier) {
-    BoxWithConstraints(modifier.fillMaxWidth()) {
-        if (maxWidth >= TOP_BAR_CENTERED_MIN) {
-            Box(Modifier.fillMaxWidth(), contentAlignment = Alignment.Center) {
-                Row(Modifier.align(Alignment.CenterStart), verticalAlignment = Alignment.CenterVertically, content = start)
-                ThemeToggle()
-                Row(
-                    Modifier.align(Alignment.CenterEnd),
-                    verticalAlignment = Alignment.CenterVertically,
-                    horizontalArrangement = Arrangement.spacedBy(12.dp),
-                    content = end,
-                )
-            }
-        } else {
-            Row(Modifier.fillMaxWidth(), verticalAlignment = Alignment.CenterVertically) {
-                Row(Modifier.weight(1f), verticalAlignment = Alignment.CenterVertically, content = start)
-                ThemeToggle(Modifier.padding(horizontal = 8.dp))
-                Row(verticalAlignment = Alignment.CenterVertically, horizontalArrangement = Arrangement.spacedBy(8.dp), content = end)
-            }
-        }
+internal fun TopBar(
+    start: @Composable RowScope.() -> Unit,
+    end: @Composable RowScope.() -> Unit,
+    modifier: Modifier = Modifier,
+) {
+    Row(
+        modifier.fillMaxWidth(),
+        verticalAlignment = Alignment.CenterVertically,
+        horizontalArrangement = Arrangement.SpaceBetween,
+    ) {
+        Row(
+            Modifier.weight(1f),
+            verticalAlignment = Alignment.CenterVertically,
+            horizontalArrangement = Arrangement.spacedBy(12.dp),
+            content = start,
+        )
+        Spacer(Modifier.width(12.dp))
+        Row(
+            verticalAlignment = Alignment.CenterVertically,
+            horizontalArrangement = Arrangement.spacedBy(10.dp),
+            content = end,
+        )
     }
 }
 
-/** 顶栏宽到这个值才把深浅色切换摆在正中（两边各留得下标题和按钮）。 */
-private val TOP_BAR_CENTERED_MIN = 720.dp
-
-/** 圆角卡片：首页的无线、有线两张。 */
+/** 圆角卡片：带 1dp 玻璃高光描边与顶部微光叠层的座舱面板。 */
 @Composable
 internal fun CardBox(
     modifier: Modifier = Modifier,
     color: Color = Palette.Card,
     border: Color = Palette.CardBorder,
+    radius: Dp = Dimens.CardRadius,
+    contentPadding: Dp = if (LocalCompact.current) Dimens.CardPaddingCompact else Dimens.CardPadding,
     content: @Composable ColumnScope.() -> Unit,
 ) {
+    val shape = RoundedCornerShape(radius)
     Column(
         modifier
-            .clip(RoundedCornerShape(Dimens.CardRadius))
+            .clip(shape)
             .background(color)
-            .border(1.dp, border, RoundedCornerShape(Dimens.CardRadius))
-            .padding(if (LocalCompact.current) Dimens.CardPaddingCompact else Dimens.CardPadding),
+            .drawBehind {
+                if (Palette.CardTopSheen.alpha > 0f && color == Palette.Card) {
+                    drawRect(
+                        Brush.verticalGradient(
+                            colors = listOf(Palette.CardTopSheen, Color.Transparent),
+                            startY = 0f,
+                            endY = size.height * 0.35f,
+                        ),
+                    )
+                }
+            }
+            .border(1.dp, border, shape)
+            .padding(contentPadding),
         content = content,
     )
 }
 
-/** 卡片左上角的图标：浅蓝方块里一个线条图标。 */
+internal enum class BadgeTone { POSITIVE, ACCENT, WARN, NEUTRAL }
+
+/** 状态小胶囊：圆点 + 短文案，用于顶栏与概览卡片快速识别当前状态。 */
 @Composable
-internal fun IconTile(glyph: ImageVector, modifier: Modifier = Modifier, large: Boolean = false) {
+internal fun StatusBadge(text: String, tone: BadgeTone, modifier: Modifier = Modifier) {
+    val (bg, border, dot, fg) = when (tone) {
+        BadgeTone.POSITIVE -> Quad(Palette.PositiveBackground, Palette.PositiveBorder, Palette.Positive, Palette.Positive)
+        BadgeTone.ACCENT -> Quad(Palette.Tint, Palette.TintBorder, Palette.AccentCyan, Palette.Accent)
+        BadgeTone.WARN -> Quad(Palette.WarnBackground, Palette.WarnBorder, Palette.Warn, Palette.Warn)
+        BadgeTone.NEUTRAL -> Quad(Palette.Button, Palette.ButtonBorder, Palette.Muted, Palette.Text2)
+    }
+    val shape = RoundedCornerShape(percent = 50)
+    Row(
+        modifier
+            .clip(shape)
+            .background(bg)
+            .border(1.dp, border, shape)
+            .padding(horizontal = 12.dp, vertical = 5.dp),
+        verticalAlignment = Alignment.CenterVertically,
+        horizontalArrangement = Arrangement.spacedBy(6.dp),
+    ) {
+        Box(
+            Modifier
+                .size(7.dp)
+                .clip(CircleShape)
+                .background(dot),
+        )
+        Text(
+            text,
+            style = UiType.footer(LocalCompact.current).copy(fontWeight = FontWeight.SemiBold),
+            color = fg,
+            maxLines = 1,
+            overflow = TextOverflow.Ellipsis,
+        )
+    }
+}
+
+private data class Quad<A, B, C, D>(val a: A, val b: B, val c: C, val d: D)
+
+/** 图标底块：轻透渐变圆角方块 + 1dp 细描边。 */
+@Composable
+internal fun IconTile(
+    glyph: ImageVector,
+    modifier: Modifier = Modifier,
+    large: Boolean = false,
+    tint: Color = Palette.Accent,
+    background: Color = Palette.Tint,
+    border: Color = Palette.TintBorder,
+) {
     val compact = LocalCompact.current
     val tile = when {
-        large && !compact -> 72.dp
-        large || !compact -> 56.dp
+        large && !compact -> 76.dp
+        large || !compact -> 54.dp
         else -> 44.dp
     }
+    val shape = RoundedCornerShape(if (large) 22.dp else 15.dp)
     Box(
         modifier
             .size(tile)
-            .clip(RoundedCornerShape(if (large) 20.dp else 16.dp))
-            .background(Palette.Tint),
+            .clip(shape)
+            .background(background)
+            .border(1.dp, border, shape),
         contentAlignment = Alignment.Center,
     ) {
-        Icon(glyph, contentDescription = null, tint = Palette.Accent, modifier = Modifier.size(tile * 0.54f))
+        Icon(glyph, contentDescription = null, tint = tint, modifier = Modifier.size(tile * 0.5f))
+    }
+}
+
+/** 连接中使用的轻量脉冲图标：仅在 [pulsing] 为真时运行低开销同心圆扩散动效，投屏/空闲时完全静止。 */
+@Composable
+internal fun PulseIconTile(
+    glyph: ImageVector,
+    pulsing: Boolean,
+    tone: BadgeTone = BadgeTone.ACCENT,
+    modifier: Modifier = Modifier,
+) {
+    val compact = LocalCompact.current
+    val (tint, bg, border) = when (tone) {
+        BadgeTone.POSITIVE -> Triple(Palette.Positive, Palette.PositiveBackground, Palette.PositiveBorder)
+        BadgeTone.WARN -> Triple(Palette.Warn, Palette.WarnBackground, Palette.WarnBorder)
+        BadgeTone.NEUTRAL -> Triple(Palette.Text2, Palette.Button, Palette.ButtonBorder)
+        BadgeTone.ACCENT -> Triple(Palette.Accent, Palette.Tint, Palette.TintBorder)
+    }
+    val ringSize = if (compact) 84.dp else 108.dp
+    val progress = if (pulsing) {
+        val transition = rememberInfiniteTransition(label = "connect_pulse")
+        transition.animateFloat(
+            initialValue = 0f,
+            targetValue = 1f,
+            animationSpec = infiniteRepeatable(
+                animation = tween(durationMillis = 1900, easing = LinearEasing),
+                repeatMode = RepeatMode.Restart,
+            ),
+            label = "pulse_ring",
+        ).value
+    } else {
+        0f
+    }
+    Box(
+        modifier
+            .size(ringSize)
+            .drawBehind {
+                if (!pulsing) return@drawBehind
+                val cx = size.width / 2f
+                val cy = size.height / 2f
+                val minR = size.minDimension * 0.34f
+                val maxR = size.minDimension * 0.5f
+                for (wave in 0..1) {
+                    val p = (progress + wave * 0.5f) % 1f
+                    val r = minR + (maxR - minR) * p
+                    val alpha = (1f - p) * 0.42f
+                    drawCircle(
+                        color = tint.copy(alpha = alpha),
+                        radius = r,
+                        center = Offset(cx, cy),
+                        style = Stroke(width = 2.dp.toPx()),
+                    )
+                }
+            },
+        contentAlignment = Alignment.Center,
+    ) {
+        IconTile(glyph, large = true, tint = tint, background = bg, border = border)
+    }
+}
+
+/** 连接阶段三步进度条：[activeStep] 取 0..2（小于它显示已完成勾，等于它高亮，大于它灰显）。 */
+@Composable
+internal fun ConnectionStepBar(steps: List<String>, activeStep: Int, modifier: Modifier = Modifier) {
+    val compact = LocalCompact.current
+    Row(
+        modifier.fillMaxWidth().widthIn(max = 460.dp),
+        verticalAlignment = Alignment.CenterVertically,
+    ) {
+        steps.forEachIndexed { index, label ->
+            val done = index < activeStep
+            val current = index == activeStep
+            val dotBg = when {
+                done -> Palette.Positive
+                current -> Palette.On
+                else -> Palette.Button
+            }
+            val textColor = when {
+                done -> Palette.Positive
+                current -> Palette.Text
+                else -> Palette.Muted
+            }
+            Row(
+                verticalAlignment = Alignment.CenterVertically,
+                horizontalArrangement = Arrangement.spacedBy(6.dp),
+            ) {
+                Box(
+                    Modifier
+                        .size(if (compact) 20.dp else 22.dp)
+                        .clip(CircleShape)
+                        .background(dotBg)
+                        .then(if (!done && !current) Modifier.border(1.dp, Palette.ButtonBorder, CircleShape) else Modifier),
+                    contentAlignment = Alignment.Center,
+                ) {
+                    if (done) {
+                        Icon(Glyphs.Check, contentDescription = null, tint = Color.White, modifier = Modifier.size(13.dp))
+                    } else {
+                        Text(
+                            "${index + 1}",
+                            style = UiType.footer(true).copy(fontWeight = FontWeight.Bold),
+                            color = if (current) Color.White else Palette.Muted,
+                            maxLines = 1,
+                        )
+                    }
+                }
+                Text(
+                    label,
+                    style = UiType.footer(compact).copy(fontWeight = if (current) FontWeight.SemiBold else FontWeight.Normal),
+                    color = textColor,
+                    maxLines = 1,
+                    overflow = TextOverflow.Ellipsis,
+                )
+            }
+            if (index < steps.lastIndex) {
+                Box(
+                    Modifier
+                        .weight(1f)
+                        .padding(horizontal = 8.dp)
+                        .height(2.dp)
+                        .clip(RoundedCornerShape(1.dp))
+                        .background(if (done) Palette.Positive else Palette.Divider),
+                )
+            }
+        }
     }
 }
 
@@ -205,24 +405,27 @@ internal fun IconTile(glyph: ImageVector, modifier: Modifier = Modifier, large: 
 @Composable
 internal fun WarnBanner(text: String, modifier: Modifier = Modifier, action: String? = null, onAction: (() -> Unit)? = null) {
     val compact = LocalCompact.current
+    val shape = RoundedCornerShape(16.dp)
     Row(
         modifier
             .fillMaxWidth()
-            .clip(RoundedCornerShape(14.dp))
+            .clip(shape)
             .background(Palette.WarnBackground)
-            .border(1.dp, Palette.WarnBorder, RoundedCornerShape(14.dp))
-            .padding(horizontal = 16.dp, vertical = if (compact) 8.dp else 10.dp),
+            .border(1.dp, Palette.WarnBorder, shape)
+            .padding(horizontal = 16.dp, vertical = if (compact) 9.dp else 11.dp),
         verticalAlignment = Alignment.CenterVertically,
         horizontalArrangement = Arrangement.spacedBy(12.dp),
     ) {
         Icon(Glyphs.Alert, contentDescription = null, tint = Palette.Warn, modifier = Modifier.size(20.dp))
         Text(text, style = UiType.hint.copy(fontSize = if (compact) 14.sp else 15.sp), color = Palette.Text, modifier = Modifier.weight(1f))
         if (action != null && onAction != null) {
+            val btnShape = RoundedCornerShape(percent = 50)
             Box(
                 Modifier
-                    .heightIn(min = 40.dp)
-                    .clip(RoundedCornerShape(12.dp))
-                    .border(1.dp, Palette.Warn, RoundedCornerShape(12.dp))
+                    .heightIn(min = 38.dp)
+                    .clip(btnShape)
+                    .background(Palette.Warn.copy(alpha = 0.14f))
+                    .border(1.dp, Palette.Warn, btnShape)
                     .clickable(role = Role.Button, onClick = onAction)
                     .padding(horizontal = 16.dp),
                 contentAlignment = Alignment.Center,
@@ -235,7 +438,7 @@ internal fun WarnBanner(text: String, modifier: Modifier = Modifier, action: Str
 
 // ------------------------------------------------------------------ 按钮
 
-/** 大按钮：连接相关的主要操作（开始、回到投屏画面）蓝底白字，次要的（停止）灰底。 */
+/** 大胶囊按钮：主操作采用电光蓝渐变 + 微光边，次要操作采用半透明高光底 + 细描边。 */
 @Composable
 internal fun PillButton(
     text: String,
@@ -244,23 +447,39 @@ internal fun PillButton(
     primary: Boolean = true,
     enabled: Boolean = true,
     wide: Boolean = false,
+    glyph: ImageVector? = null,
 ) {
     val compact = LocalCompact.current
-    Box(
+    val shape = RoundedCornerShape(percent = 50)
+    val bgModifier = if (primary) {
+        Modifier
+            .background(Brush.horizontalGradient(listOf(Palette.OnGradientStart, Palette.OnGradientEnd)))
+            .border(1.dp, Color.White.copy(alpha = 0.22f), shape)
+    } else {
+        Modifier
+            .background(Palette.Button)
+            .border(1.dp, Palette.ButtonBorder, shape)
+    }
+    Row(
         modifier
-            .widthIn(min = if (wide) (if (compact) 240.dp else 320.dp) else if (compact) 140.dp else 180.dp)
-            .heightIn(min = if (compact) 46.dp else 56.dp)
+            .widthIn(min = if (wide) (if (compact) 230.dp else 290.dp) else if (compact) 136.dp else 168.dp)
+            .heightIn(min = if (compact) 46.dp else 54.dp)
             .alpha(if (enabled) 1f else DISABLED_ALPHA)
-            .clip(RoundedCornerShape(16.dp))
-            .background(if (primary) Palette.On else Palette.Button)
+            .clip(shape)
+            .then(bgModifier)
             .clickable(enabled = enabled, role = Role.Button, onClick = onClick)
             .padding(horizontal = 24.dp, vertical = 6.dp),
-        contentAlignment = Alignment.Center,
+        verticalAlignment = Alignment.CenterVertically,
+        horizontalArrangement = Arrangement.spacedBy(8.dp, Alignment.CenterHorizontally),
     ) {
+        val fg = if (primary) Palette.OnAccent else Palette.ButtonText
+        if (glyph != null) {
+            Icon(glyph, contentDescription = null, tint = fg, modifier = Modifier.size(if (compact) 19.dp else 21.dp))
+        }
         Text(
             text,
-            style = UiType.pill.copy(fontSize = if (compact) 17.sp else 19.sp),
-            color = if (primary) Palette.OnAccent else Palette.ButtonText,
+            style = UiType.pill.copy(fontSize = if (compact) 16.sp else 18.sp),
+            color = fg,
             textAlign = TextAlign.Center,
         )
     }
@@ -277,17 +496,19 @@ internal fun ActionButton(
     kind: ActionKind = ActionKind.NORMAL,
     enabled: Boolean = true,
 ) {
-    val (background, foreground) = when (kind) {
-        ActionKind.NORMAL -> Palette.Button to Palette.ButtonText
-        ActionKind.PRIMARY -> Palette.On to Palette.OnAccent
-        ActionKind.DANGER -> Palette.Warn to Palette.Background
+    val shape = RoundedCornerShape(12.dp)
+    val (background, border, foreground) = when (kind) {
+        ActionKind.NORMAL -> Triple(Palette.Button, Palette.ButtonBorder, Palette.ButtonText)
+        ActionKind.PRIMARY -> Triple(Palette.On, Color.White.copy(alpha = 0.18f), Palette.OnAccent)
+        ActionKind.DANGER -> Triple(Palette.Warn, Palette.Warn, Palette.Background)
     }
     Box(
         modifier
             .heightIn(min = 42.dp)
             .alpha(if (enabled) 1f else DISABLED_ALPHA)
-            .clip(RoundedCornerShape(12.dp))
+            .clip(shape)
             .background(background)
+            .border(1.dp, border, shape)
             .clickable(enabled = enabled, role = Role.Button, onClick = onClick)
             .padding(horizontal = 18.dp, vertical = 6.dp),
         contentAlignment = Alignment.Center,
@@ -350,7 +571,13 @@ internal fun DialogText(text: String, color: Color = Palette.Text) {
 @Composable
 internal fun PinBoxes(pin: String, box: Dp, gap: Dp, modifier: Modifier = Modifier, description: String? = null) {
     val fontSize = with(LocalDensity.current) { (box * PIN_FONT_RATIO).toSp() }
-    val style = TextStyle(fontSize = fontSize, letterSpacing = 0.sp)
+    val style = TextStyle(
+        fontSize = fontSize,
+        fontWeight = FontWeight.Bold,
+        fontFamily = androidx.compose.ui.text.font.FontFamily.Monospace,
+        letterSpacing = 0.sp,
+    )
+    val shape = RoundedCornerShape(14.dp)
     Row(
         modifier.semantics(mergeDescendants = true) { if (description != null) contentDescription = description },
         horizontalArrangement = Arrangement.Center,
@@ -360,8 +587,9 @@ internal fun PinBoxes(pin: String, box: Dp, gap: Dp, modifier: Modifier = Modifi
                 Modifier
                     .padding(horizontal = gap)
                     .size(box)
-                    .clip(RoundedCornerShape(12.dp))
-                    .background(Palette.PinBox),
+                    .clip(shape)
+                    .background(Palette.PinBox)
+                    .border(1.dp, Palette.TintBorder, shape),
                 contentAlignment = Alignment.Center,
             ) {
                 Text(digit.toString(), style = style, color = Palette.PinText, maxLines = 1)
@@ -370,7 +598,7 @@ internal fun PinBoxes(pin: String, box: Dp, gap: Dp, modifier: Modifier = Modifi
     }
 }
 
-private const val PIN_FONT_RATIO = 0.8f
+private const val PIN_FONT_RATIO = 0.68f
 
 // ------------------------------------------------------------------ 设置页：分组与行
 
@@ -636,14 +864,18 @@ internal fun DetailNote(text: String, warn: Boolean = false) {
 @Composable
 private fun OptionCard(option: CardOption, selected: Boolean, modifier: Modifier, onClick: () -> Unit) {
     val compact = LocalCompact.current
-    val shape = RoundedCornerShape(14.dp)
+    val shape = RoundedCornerShape(16.dp)
     Column(
         modifier
             .clip(shape)
-            .background(if (selected) Palette.Tint else Color.Transparent)
-            .border(2.dp, if (selected) Palette.On else Palette.SwitchOff, shape)
+            .background(if (selected) Palette.Tint else Palette.CardElevated)
+            .border(
+                width = if (selected) 1.5.dp else 1.dp,
+                color = if (selected) Palette.Accent else Palette.CardBorder,
+                shape = shape,
+            )
             .selectable(selected = selected, role = Role.RadioButton, onClick = onClick)
-            .padding(horizontal = 14.dp, vertical = if (compact) 10.dp else 14.dp),
+            .padding(horizontal = 16.dp, vertical = if (compact) 11.dp else 14.dp),
     ) {
         Row(verticalAlignment = Alignment.CenterVertically, horizontalArrangement = Arrangement.spacedBy(8.dp)) {
             Text(
@@ -834,19 +1066,26 @@ private fun HelpButton(shown: Boolean, onClick: () -> Unit) {
     }
 }
 
-/** 滑动开关：开 = 蓝色轨道、圆点在右；关 = 灰色轨道、圆点在左。 */
+/** 滑动开关：开 = 电光蓝渐变轨道、圆点在右；关 = 深灰轨道带细描边、圆点在左。 */
 @Composable
 private fun PillSwitch(checked: Boolean) {
     val compact = LocalCompact.current
     val knob = if (compact) 22.dp else 26.dp
-    val trackWidth = if (compact) 46.dp else 54.dp
+    val trackWidth = if (compact) 48.dp else 56.dp
     val inset = 3.dp
     val x by animateDpAsState(if (checked) trackWidth - knob - inset else inset, label = "开关圆点")
+    val shape = RoundedCornerShape(percent = 50)
     Box(
         Modifier
             .size(trackWidth, knob + inset * 2)
-            .clip(RoundedCornerShape(percent = 50))
-            .background(if (checked) Palette.On else Palette.SwitchOff),
+            .clip(shape)
+            .then(
+                if (checked) {
+                    Modifier.background(Brush.horizontalGradient(listOf(Palette.OnGradientStart, Palette.OnGradientEnd)))
+                } else {
+                    Modifier.background(Palette.SwitchOff).border(1.dp, Palette.CardBorder, shape)
+                },
+            ),
         contentAlignment = Alignment.CenterStart,
     ) {
         Box(
@@ -859,32 +1098,41 @@ private fun PillSwitch(checked: Boolean) {
     }
 }
 
-/** 分段选择：选中的那段蓝底白字，其余是底槽上的普通字。[fill] 为真时各段等宽铺满，否则按字宽。 */
+/** 分段选择：带细描边底槽 + 选中项电光蓝高亮。 */
 @Composable
 private fun Segmented(options: List<String>, selected: Int, onSelect: (Int) -> Unit, modifier: Modifier, fill: Boolean) {
     val compact = LocalCompact.current
+    val troughShape = RoundedCornerShape(14.dp)
     Row(
         modifier
-            .clip(RoundedCornerShape(12.dp))
+            .clip(troughShape)
             .background(Palette.SegmentBackground)
+            .border(1.dp, Palette.Divider, troughShape)
             .padding(3.dp)
             .selectableGroup(),
         horizontalArrangement = Arrangement.spacedBy(3.dp),
     ) {
         options.forEachIndexed { index, label ->
             val on = index == selected
+            val itemShape = RoundedCornerShape(11.dp)
             Box(
                 (if (fill) Modifier.weight(1f) else Modifier.widthIn(min = if (compact) 60.dp else 72.dp))
                     .heightIn(min = if (compact) 36.dp else 42.dp)
-                    .clip(RoundedCornerShape(10.dp))
-                    .background(if (on) Palette.On else Color.Transparent)
+                    .clip(itemShape)
+                    .then(
+                        if (on) {
+                            Modifier.background(Brush.horizontalGradient(listOf(Palette.OnGradientStart, Palette.OnGradientEnd)))
+                        } else {
+                            Modifier
+                        },
+                    )
                     .selectable(selected = on, role = Role.RadioButton) { onSelect(index) }
-                    .padding(horizontal = 10.dp),
+                    .padding(horizontal = 12.dp),
                 contentAlignment = Alignment.Center,
             ) {
                 Text(
                     label,
-                    style = UiType.option(compact).copy(fontWeight = if (on) FontWeight.Medium else FontWeight.Normal),
+                    style = UiType.option(compact).copy(fontWeight = if (on) FontWeight.SemiBold else FontWeight.Normal),
                     color = if (on) Palette.OnAccent else Palette.Text2,
                     maxLines = 1,
                     overflow = TextOverflow.Ellipsis,
