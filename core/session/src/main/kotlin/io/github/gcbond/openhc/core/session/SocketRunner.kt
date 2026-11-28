@@ -386,7 +386,7 @@ class SocketRunner(
             execute(session.start(now()))
             drainImmediate()
             while (!session.isEnded && !abandoned) {
-                var input = queue.poll(waitMillis(), TimeUnit.MILLISECONDS)
+                var input = queue.poll(waitMillis())
                 var burst = 0
                 while (input != null && !session.isEnded && !abandoned) {
                     dispatch(input)
