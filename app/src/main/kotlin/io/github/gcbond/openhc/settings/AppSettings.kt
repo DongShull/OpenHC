@@ -61,7 +61,7 @@ class AppSettings(context: Context) {
         set(value) = prefs.edit { putInt(KEY_THEME_MODE, value.coerceIn(THEME_AUTO, THEME_DARK)) }
 
     /** 最近一次读到的定位坐标缓存（用于自动昼夜在无实时 GPS 锁定时维持本地日出日落精度）。 */
-    var cachedLocation: SolarThemeCalculator.GeoPoint?
+    internal var cachedLocation: SolarThemeCalculator.GeoPoint?
         get() {
             if (!prefs.contains(KEY_LAST_LAT_BITS) || !prefs.contains(KEY_LAST_LON_BITS)) return null
             val lat = Double.fromBits(prefs.getLong(KEY_LAST_LAT_BITS, 0L))
@@ -90,7 +90,7 @@ class AppSettings(context: Context) {
     }
 
     /** 计算当前设备对应的太阳起落状态（含日出/日落时间与坐标来源）。 */
-    fun resolveSolar(context: Context): SolarThemeCalculator.SolarSnapshot =
+    internal fun resolveSolar(context: Context): SolarThemeCalculator.SolarSnapshot =
         SolarThemeResolver.resolve(context, this)
 
     /** 兼容旧字段：直接读写深浅色时同步更新 [themeMode]。 */

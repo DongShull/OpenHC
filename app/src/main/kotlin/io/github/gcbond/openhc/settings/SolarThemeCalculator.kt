@@ -117,7 +117,7 @@ internal object SolarThemeCalculator {
         val tzOffsetMinutes = timeZone.getOffset(localNoonMillis) / MILLIS_PER_MINUTE
 
         // 以当地太阳中天时刻求赤纬与均时差，误差在 1 分钟内。
-        val solarNoonApproxUtc = localNoonMillis - ((tzOffsetMinutes - 4.0 * lon) * MILLIS_PER_MINUTE).toLong()
+        val solarNoonApproxUtc = localNoonMillis + ((tzOffsetMinutes - 4.0 * lon) * MILLIS_PER_MINUTE).toLong()
         val astro = solarParams(solarNoonApproxUtc)
 
         val latRad = Math.toRadians(lat)
