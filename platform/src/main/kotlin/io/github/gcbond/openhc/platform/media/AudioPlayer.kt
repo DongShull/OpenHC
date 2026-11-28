@@ -149,6 +149,7 @@ class AudioPlayer(
     private var dead = false
     private var decoder: MediaCodec? = null
     private var decoderErrors = 0
+    private var trackRebuilds = 0
     private var presentationUs = 0L
     private var pcm = ByteArray(PCM_SCRATCH)
     private val info = MediaCodec.BufferInfo()
@@ -366,39 +367,92 @@ class AudioPlayer(
         return if (format.encoding == Encoding.AAC || trackRate == format.sampleRate) frames else frames * trackRate / format.sampleRate
     }
 
-    /** 写一段 16 位小端 PCM；没在放就先预填再开始放（数据已经攒够了才会到这里）。 */
+    /** 写一段 16 位小端 PCM；没在放就先预填再开始放（数据已经攒够了才会到这里）。遇到音轨失效（如车机开门切音频路由）自动重建。 */
     private fun writePcm(data: ByteArray, offset: Int, length: Int) {
-        val t = track ?: return
+        var t = track ?: return
         var done = 0
-        if (!playing) {
-            // 停着时先非阻塞填进第一块，再 play()，避免刚起播瞬间空缓冲触发欠载。
-            val prefill = t.write(data, offset, length, AudioTrack.WRITE_NON_BLOCKING)
-            if (prefill < 0) {
-                fatal("AudioTrack.write 返回 $prefill")
-                return
+        var zeroWrites = 0
+        while (done < length && !closed && !dead) {
+            if (!playing) {
+                // 停着时先非阻塞填进第一块，再 play()，避免刚起播瞬间空缓冲触发欠载。
+                val prefill = t.write(data, offset + done, length - done, AudioTrack.WRITE_NON_BLOCKING)
+                if (prefill == ERROR_DEAD_OBJECT) {
+                    t = rebuildTrack("AudioTrack.write（预填）返回 ERROR_DEAD_OBJECT") ?: return
+                    continue
+                }
+                if (prefill < 0) {
+                    fatal("AudioTrack.write 返回 $prefill")
+                    return
+                }
+                done += prefill
+                framesWritten += prefill / trackFrameBytes
+                try {
+                    t.play()
+                } catch (e: IllegalStateException) {
+                    t = rebuildTrack("AudioTrack.play 异常（${e.message}）") ?: return
+                    continue
+                }
+                playing = true
+                val buffered = (queue.bufferedFrames + (length - done) / trackFrameBytes + remainingTrackFrames(t)) * 1000 / trackRate
+                if (!started) {
+                    started = true
+                    emit(Event.Started(buffered))
+                } else {
+                    emit(Event.Resumed(buffered))
+                }
+                if (done >= length) break
             }
-            done = prefill
-            framesWritten += prefill / trackFrameBytes
-            t.play()
-            playing = true
-            val buffered = (queue.bufferedFrames + (length - prefill) / trackFrameBytes + remainingTrackFrames(t)) * 1000 / trackRate
-            if (!started) {
-                started = true
-                emit(Event.Started(buffered))
-            } else {
-                emit(Event.Resumed(buffered))
-            }
-        }
-        while (done < length && !closed) {
             val n = t.write(data, offset + done, length - done, AudioTrack.WRITE_BLOCKING)
+            if (n == ERROR_DEAD_OBJECT) {
+                t = rebuildTrack("AudioTrack.write 返回 ERROR_DEAD_OBJECT") ?: return
+                continue
+            }
             if (n < 0) {
                 fatal("AudioTrack.write 返回 $n")
                 return
             }
-            if (n == 0) break
+            if (n == 0) {
+                zeroWrites++
+                if (zeroWrites >= MAX_ZERO_WRITES) {
+                    t = rebuildTrack("AudioTrack.write 连续返回 0（音轨可能被系统路由挂起）") ?: return
+                    zeroWrites = 0
+                    continue
+                }
+                if (t.playState != AudioTrack.PLAYSTATE_PLAYING) {
+                    try {
+                        t.play()
+                    } catch (e: IllegalStateException) {
+                        t = rebuildTrack("AudioTrack 恢复播放异常（${e.message}）") ?: return
+                        zeroWrites = 0
+                        continue
+                    }
+                }
+                try {
+                    Thread.sleep(ZERO_WRITE_SLEEP_MS)
+                } catch (e: InterruptedException) {
+                    Thread.currentThread().interrupt()
+                    return
+                }
+                continue
+            }
+            zeroWrites = 0
             done += n
             framesWritten += n / trackFrameBytes
         }
+    }
+
+    /** 车机开门提示音或音频路由切换导致 AudioTrack 失效时，原地重建音轨继续播，不永久断流。 */
+    private fun rebuildTrack(reason: String): AudioTrack? {
+        if (trackRebuilds >= MAX_TRACK_REBUILDS) {
+            fatal("$reason（重建音轨已达上限 $MAX_TRACK_REBUILDS 次）")
+            return null
+        }
+        trackRebuilds++
+        emit(Event.Failed("$reason，正在重建音轨（第 $trackRebuilds 次）", fatal = false))
+        val rate = if (trackRate > 0) trackRate else format.sampleRate
+        val ch = if (trackChannels > 0) trackChannels else format.channels
+        releaseTrack()
+        return ensureTrack(rate, ch)
     }
 
     /** 调用方要的音量变了（或刚建好音轨，[force]）就设到音轨上。 */
@@ -419,7 +473,11 @@ class AudioPlayer(
         val t = track ?: return
         if (!playing || queue.bufferedFrames > 0) return
         if (remainingTrackFrames(t) > trackRate.toLong() * LOW_WATER_MILLIS / 1000) return
-        t.pause()
+        try {
+            t.pause()
+        } catch (e: IllegalStateException) {
+            // 音轨被系统回收：下次写入时 rebuildTrack 会重建。
+        }
         playing = false
         queue.onStarved()
         emit(Event.Starved(queue.starvations))
@@ -631,6 +689,11 @@ class AudioPlayer(
         const val OUTPUT_WAIT_US = 5_000L
         const val OUTPUT_WAIT_BURST_US = 1_000L
         const val MAX_DECODER_ERRORS = 5
+        const val MAX_TRACK_REBUILDS = 5
+        const val MAX_ZERO_WRITES = 20
+        const val ZERO_WRITE_SLEEP_MS = 5L
+        /** 等同于 AudioTrack.ERROR_DEAD_OBJECT（API 24 公开，值固定为 -6，兼容 minSdk 23）。 */
+        const val ERROR_DEAD_OBJECT = -6
         const val PCM_SCRATCH = 16 * 1024
         const val UINT32 = 0xFFFF_FFFFL
     }

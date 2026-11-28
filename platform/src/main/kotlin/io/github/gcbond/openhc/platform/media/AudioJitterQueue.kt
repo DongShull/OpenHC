@@ -60,6 +60,9 @@ class AudioJitterQueue(
     /** 最近一次起播（开始往外放）的时刻；起播窗口过了置 null。 */
     private var releasedAt: Long? = null
 
+    /** 起播窗口内最近一次压回的时刻，防止突发包每 5ms 连续删块造成倍速播放。 */
+    private var lastStartTrim: Long? = null
+
     /** 取走之后仍高于目标是从什么时候开始的；不高于目标时为 null。 */
     private var aboveSince: Long? = null
     private var lastTrim: Long? = null
@@ -193,6 +196,7 @@ class AudioJitterQueue(
         if (!releasing && buffered >= startFrames) {
             releasing = true
             releasedAt = now
+            lastStartTrim = null
         }
         if (waiters > 0 && (releasing || (wasEmpty && tailFlushMillis > 0))) ready.signalAll()
         return droppedNow
@@ -213,6 +217,7 @@ class AudioJitterQueue(
                     if (sinceLastOffer >= tailFlushNanos) {
                         releasing = true
                         releasedAt = now
+                        lastStartTrim = null
                     }
                 }
                 if (releasing && chunks.isNotEmpty()) {
@@ -249,23 +254,37 @@ class AudioJitterQueue(
             if (!releasing) return
             starved++
             releasing = buffered >= startFrames
+            releasedAt = if (releasing) clockNanos() else null
+            lastStartTrim = null
             aboveSince = null
         }
     }
 
-    /** 起播窗口里：高于目标就从最旧的丢起，丢到不低于目标为止（至少留一块）。只在持锁时调用。 */
+    /**
+     * 起播窗口里：高于目标时一次性从最旧的压回目标（不低于目标，至少留一块）。
+     * 两次压回之间保留至少 [startTrimCooldownNanos] 的冷却时间，避免网络卡顿后 TCP 连续补包时每 5ms 删一块、
+     * 听起来变成 2～4 倍速快进。只在持锁时调用。
+     */
     private fun trimStartBurst() {
         val since = releasedAt ?: return
-        if (clockNanos() - since >= TimeUnit.MILLISECONDS.toNanos(startWindowMillis)) {
+        val now = clockNanos()
+        if (now - since >= TimeUnit.MILLISECONDS.toNanos(startWindowMillis)) {
             releasedAt = null
+            lastStartTrim = null
             return
         }
+        val last = lastStartTrim
+        val cooldownNanos = TimeUnit.MILLISECONDS.toNanos(maxOf(trimSpacingMillis, START_TRIM_COOLDOWN_MILLIS))
+        if (last != null && now - last < cooldownNanos) return
+        var trimmedNow = false
         while (chunks.size > 1 && buffered - chunks.first.frames >= targetFrames) {
             val oldest = chunks.removeFirst()
             buffered -= oldest.frames
             startTrimmed += oldest.frames
             returnBufferLocked(oldest)
+            trimmedNow = true
         }
+        if (trimmedNow) lastStartTrim = now
     }
 
     /** 取走一块之后：长期高于目标就从最旧的丢起，每次最多约 [trimStepFrames]（至少留一块）。只在持锁时调用。 */
@@ -309,6 +328,9 @@ class AudioJitterQueue(
     private companion object {
         const val MAX_POOL_SIZE = 64
         const val MIN_POOLED_BYTES = 2048
+
+        /** 起播窗口内两次压回的最小冷却间隔，防止突发补包触发连续微切变成倍速快进。 */
+        const val START_TRIM_COOLDOWN_MILLIS = 400L
     }
 }
 
