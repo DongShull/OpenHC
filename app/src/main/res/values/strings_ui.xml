@@ -78,7 +78,7 @@
     <string name="home_scan_step1_title">手机扫码或点弹窗</string>
     <string name="home_scan_step1_desc">打开华为「智慧出行 / HiCar」扫描左侧二维码</string>
     <string name="home_scan_step2_title">核对连接码并确认</string>
-    <string name="home_scan_step2_desc">首次配对请在手机端确认，核对下方配对码</string>
+    <string name="home_scan_step2_desc">首次配对请在手机端确认，核对屏幕上的连接码</string>
     <string name="home_scan_step3_title">随时支持插线直连</string>
     <string name="home_scan_step3_desc">插入 USB 数据线将自动优先切换为有线投屏</string>
     <string name="home_card_badge_auto_on">自动回连</string>

@@ -3,7 +3,12 @@ package io.github.gcbond.openhc.ui
 import android.content.Context
 import android.os.Handler
 import android.os.Looper
+import androidx.compose.animation.animateColorAsState
+import androidx.compose.animation.core.tween
+import androidx.compose.foundation.LocalIndication
 import androidx.compose.foundation.background
+import androidx.compose.foundation.border
+import androidx.compose.foundation.interaction.MutableInteractionSource
 import androidx.compose.foundation.layout.Arrangement
 import androidx.compose.foundation.layout.Box
 import androidx.compose.foundation.layout.Column
@@ -27,6 +32,7 @@ import androidx.compose.runtime.remember
 import androidx.compose.runtime.setValue
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
+import androidx.compose.ui.draw.alpha
 import androidx.compose.ui.draw.clip
 import androidx.compose.ui.graphics.Color
 import androidx.compose.ui.platform.LocalContext
@@ -69,39 +75,42 @@ internal fun AudioSettingsSection() {
             prefs.enabled = it
         }
         val delays = AudioPreferences.DELAY_CHOICES
-        ChoiceRow(
-            title = stringResource(R.string.settings_audio_delay),
-            summary = stringResource(R.string.settings_audio_delay_summary),
-            options = delays.map {
-                if (it == 0) stringResource(R.string.settings_audio_delay_min) else stringResource(R.string.settings_audio_delay_plus, it)
-            },
-            selected = delays.indexOf(delay),
-            description = stringResource(R.string.settings_audio_delay_hint),
-        ) { index ->
-            delay = delays[index]
-            prefs.delayMillis = delays[index]
-        }
-        StreamRow(
-            title = stringResource(R.string.settings_audio_navigation_stream),
-            summary = stringResource(R.string.settings_audio_navigation_stream_summary),
-            description = stringResource(R.string.settings_audio_navigation_stream_hint),
-            usage = AudioUsage.NAVIGATION,
-            selected = navigationStream,
-            lowLatency = prefs.lowLatency,
-        ) {
-            navigationStream = it
-            prefs.navigationStream = it
-        }
-        StreamRow(
-            title = stringResource(R.string.settings_audio_media_stream),
-            summary = stringResource(R.string.settings_audio_media_stream_summary),
-            description = stringResource(R.string.settings_audio_media_stream_hint),
-            usage = AudioUsage.MEDIA,
-            selected = mediaStream,
-            lowLatency = prefs.lowLatency,
-        ) {
-            mediaStream = it
-            prefs.mediaStream = it
+        // 声音总开关关闭时柔和降权下方播放参数，提示当前不经车机发声（仍保留预览与预设修改能力）。
+        Column(Modifier.fillMaxWidth().alpha(if (enabled) 1f else 0.48f)) {
+            ChoiceRow(
+                title = stringResource(R.string.settings_audio_delay),
+                summary = stringResource(R.string.settings_audio_delay_summary),
+                options = delays.map {
+                    if (it == 0) stringResource(R.string.settings_audio_delay_min) else stringResource(R.string.settings_audio_delay_plus, it)
+                },
+                selected = delays.indexOf(delay),
+                description = stringResource(R.string.settings_audio_delay_hint),
+            ) { index ->
+                delay = delays[index]
+                prefs.delayMillis = delays[index]
+            }
+            StreamRow(
+                title = stringResource(R.string.settings_audio_navigation_stream),
+                summary = stringResource(R.string.settings_audio_navigation_stream_summary),
+                description = stringResource(R.string.settings_audio_navigation_stream_hint),
+                usage = AudioUsage.NAVIGATION,
+                selected = navigationStream,
+                lowLatency = prefs.lowLatency,
+            ) {
+                navigationStream = it
+                prefs.navigationStream = it
+            }
+            StreamRow(
+                title = stringResource(R.string.settings_audio_media_stream),
+                summary = stringResource(R.string.settings_audio_media_stream_summary),
+                description = stringResource(R.string.settings_audio_media_stream_hint),
+                usage = AudioUsage.MEDIA,
+                selected = mediaStream,
+                lowLatency = prefs.lowLatency,
+            ) {
+                mediaStream = it
+                prefs.mediaStream = it
+            }
         }
         GroupRow {
             RowHeader(stringResource(R.string.settings_audio_fallback_title), stringResource(R.string.settings_audio_fallback_help))
@@ -222,20 +231,37 @@ private fun StreamChips(selected: Int, onSelect: (Int) -> Unit) {
         items(choices, key = { it }) { value ->
             val on = value == selected
             val chipShape = RoundedCornerShape(7.dp)
+            val interactionSource = remember { MutableInteractionSource() }
+            val chipBg by animateColorAsState(
+                targetValue = if (on) Palette.SegmentSelected else Color.Transparent,
+                animationSpec = tween(150),
+                label = "stream_chip_bg",
+            )
+            val chipFg by animateColorAsState(
+                targetValue = if (on) Palette.Text else Palette.Text2,
+                animationSpec = tween(150),
+                label = "stream_chip_fg",
+            )
             Box(
                 Modifier
                     .width(CHIP_WIDTH)
                     .clip(chipShape)
-                    .background(if (on) Palette.SegmentSelected else Color.Transparent)
+                    .background(chipBg)
+                    .then(if (on) Modifier.border(1.dp, Palette.SegmentSelectedBorder, chipShape) else Modifier)
                     .dpadFocusRing(chipShape)
-                    .selectable(selected = on, role = Role.RadioButton) { onSelect(value) }
+                    .selectable(
+                        selected = on,
+                        interactionSource = interactionSource,
+                        indication = LocalIndication.current,
+                        role = Role.RadioButton,
+                    ) { onSelect(value) }
                     .padding(vertical = if (compact) 5.dp else 7.dp),
                 contentAlignment = Alignment.Center,
             ) {
                 Text(
                     if (value == AudioStreamChoice.AUTO) auto else value.toString(),
                     style = UiType.option(compact).copy(fontWeight = if (on) FontWeight.SemiBold else FontWeight.Normal),
-                    color = if (on) Palette.Text else Palette.Text2,
+                    color = chipFg,
                     maxLines = 1,
                 )
             }

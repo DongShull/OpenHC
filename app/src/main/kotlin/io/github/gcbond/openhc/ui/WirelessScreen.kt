@@ -7,6 +7,8 @@ import androidx.compose.foundation.layout.Box
 import androidx.compose.foundation.layout.BoxWithConstraints
 import androidx.compose.foundation.layout.Column
 import androidx.compose.foundation.layout.ColumnScope
+import androidx.compose.foundation.layout.ExperimentalLayoutApi
+import androidx.compose.foundation.layout.FlowRow
 import androidx.compose.foundation.layout.Row
 import androidx.compose.foundation.layout.Spacer
 import androidx.compose.foundation.layout.fillMaxHeight
@@ -33,8 +35,10 @@ import androidx.compose.ui.draw.drawWithContent
 import androidx.compose.ui.focus.FocusRequester
 import androidx.compose.ui.focus.focusRequester
 import androidx.compose.ui.geometry.Offset
+import androidx.compose.ui.geometry.Size
 import androidx.compose.ui.graphics.Color
 import androidx.compose.ui.graphics.StrokeCap
+import androidx.compose.ui.graphics.drawscope.Stroke
 import androidx.compose.ui.platform.LocalView
 import androidx.compose.ui.res.stringResource
 import androidx.compose.ui.text.font.FontWeight
@@ -247,11 +251,13 @@ private fun StopButton(state: WirelessUiState, actions: WirelessActions, modifie
     )
 }
 
-/** 二维码（克制四角观景装饰线）与下方等宽连接码。严格遵循 [QrPinLayout] 尺寸预算。 */
+/** 二维码（同心圆弧包角取景框）与下方等宽连接码。严格遵循 [QrPinLayout] 尺寸预算。 */
 @Composable
 private fun QrAndPin(qr: String, pin: String?, size: QrPinSize) {
-    val qrShape = RoundedCornerShape(16.dp)
-    val bracketColor = Palette.Accent.copy(alpha = 0.65f)
+    val qrCorner = 16.dp
+    val qrPad = 8.dp
+    val qrShape = RoundedCornerShape(qrCorner)
+    val bracketColor = Palette.Accent.copy(alpha = 0.72f)
     Column(horizontalAlignment = Alignment.CenterHorizontally) {
         Spacer(Modifier.height(QrPinLayout.QR_MARGIN.dp))
         Box(
@@ -259,23 +265,20 @@ private fun QrAndPin(qr: String, pin: String?, size: QrPinSize) {
                 .size(size.qr.dp)
                 .drawWithContent {
                     drawContent()
-                    val len = 14.dp.toPx()
-                    val stroke = 2.dp.toPx()
-                    val inset = 2.dp.toPx()
+                    val stroke = 2.5.dp.toPx()
+                    val inset = 1.5.dp.toPx()
+                    // 与内层白卡圆角同心：inset + arcRadius == qrPad + qrCorner
+                    val arcRadius = (qrPad + qrCorner).toPx() - inset
+                    val arcDiameter = arcRadius * 2f
+                    val arcSize = Size(arcDiameter, arcDiameter)
+                    val arcStyle = Stroke(width = stroke, cap = StrokeCap.Round)
                     val w = this.size.width
                     val h = this.size.height
-                    // 左上
-                    drawLine(bracketColor, Offset(inset, inset + len), Offset(inset, inset), stroke, StrokeCap.Round)
-                    drawLine(bracketColor, Offset(inset, inset), Offset(inset + len, inset), stroke, StrokeCap.Round)
-                    // 右上
-                    drawLine(bracketColor, Offset(w - inset - len, inset), Offset(w - inset, inset), stroke, StrokeCap.Round)
-                    drawLine(bracketColor, Offset(w - inset, inset), Offset(w - inset, inset + len), stroke, StrokeCap.Round)
-                    // 左下
-                    drawLine(bracketColor, Offset(inset, h - inset - len), Offset(inset, h - inset), stroke, StrokeCap.Round)
-                    drawLine(bracketColor, Offset(inset, h - inset), Offset(inset + len, h - inset), stroke, StrokeCap.Round)
-                    // 右下
-                    drawLine(bracketColor, Offset(w - inset - len, h - inset), Offset(w - inset, h - inset), stroke, StrokeCap.Round)
-                    drawLine(bracketColor, Offset(w - inset, h - inset - len), Offset(w - inset, h - inset), stroke, StrokeCap.Round)
+                    // 左上、右上、右下、左下四段同心圆弧
+                    drawArc(bracketColor, 180f, 90f, false, Offset(inset, inset), arcSize, style = arcStyle)
+                    drawArc(bracketColor, 270f, 90f, false, Offset(w - inset - arcDiameter, inset), arcSize, style = arcStyle)
+                    drawArc(bracketColor, 0f, 90f, false, Offset(w - inset - arcDiameter, h - inset - arcDiameter), arcSize, style = arcStyle)
+                    drawArc(bracketColor, 90f, 90f, false, Offset(inset, h - inset - arcDiameter), arcSize, style = arcStyle)
                 },
             contentAlignment = Alignment.Center,
         ) {
@@ -283,7 +286,7 @@ private fun QrAndPin(qr: String, pin: String?, size: QrPinSize) {
                 qr,
                 Modifier
                     .size(size.qr.dp)
-                    .padding(6.dp)
+                    .padding(qrPad)
                     .clip(qrShape)
                     .background(Color.White)
                     .border(1.dp, Palette.CardBorder, qrShape)
@@ -312,26 +315,53 @@ private fun QrAndPin(qr: String, pin: String?, size: QrPinSize) {
     }
 }
 
-/** 等扫码时的网络胶囊与告警信息。 */
+/** 等扫码时的网络与 BLE 广播胶囊行及告警信息。 */
+@OptIn(ExperimentalLayoutApi::class)
 @Composable
 private fun ScanMetaLines(state: WirelessUiState) {
     val compact = LocalCompact.current
     val pillShape = RoundedCornerShape(percent = 50)
-    Row(
-        Modifier
-            .clip(pillShape)
-            .background(Palette.CardElevated)
-            .border(1.dp, Palette.CardBorder, pillShape)
-            .padding(horizontal = 12.dp, vertical = 6.dp),
-        verticalAlignment = Alignment.CenterVertically,
-        horizontalArrangement = Arrangement.spacedBy(7.dp),
+    val centered = LocalCenteredText.current
+    val beaconText = state.beacon?.let { wirelessBeaconText(it) }
+    FlowRow(
+        modifier = if (centered) Modifier.fillMaxWidth() else Modifier,
+        horizontalArrangement = Arrangement.spacedBy(8.dp, if (centered) Alignment.CenterHorizontally else Alignment.Start),
+        verticalArrangement = Arrangement.spacedBy(8.dp),
     ) {
-        Icon(Glyphs.Wifi, contentDescription = null, tint = Palette.Accent, modifier = Modifier.size(14.dp))
-        Text(wirelessNetworkText(state), style = UiType.footer(compact), color = Palette.Text2)
+        Row(
+            Modifier
+                .clip(pillShape)
+                .background(Palette.CardElevated)
+                .border(1.dp, Palette.CardBorder, pillShape)
+                .padding(horizontal = 12.dp, vertical = 6.dp),
+            verticalAlignment = Alignment.CenterVertically,
+            horizontalArrangement = Arrangement.spacedBy(7.dp),
+        ) {
+            Icon(Glyphs.Wifi, contentDescription = null, tint = Palette.Accent, modifier = Modifier.size(14.dp))
+            Text(wirelessNetworkText(state), style = UiType.footer(compact), color = Palette.Text2)
+        }
+        if (beaconText != null) {
+            Row(
+                Modifier
+                    .clip(pillShape)
+                    .background(Palette.CardElevated)
+                    .border(1.dp, Palette.CardBorder, pillShape)
+                    .padding(horizontal = 12.dp, vertical = 6.dp),
+                verticalAlignment = Alignment.CenterVertically,
+                horizontalArrangement = Arrangement.spacedBy(7.dp),
+            ) {
+                Box(
+                    Modifier
+                        .size(6.dp)
+                        .clip(CircleShape)
+                        .background(Palette.Positive),
+                )
+                Text(beaconText, style = UiType.footer(compact), color = Palette.Muted)
+            }
+        }
     }
     if (state.addressMismatch) Line(stringResource(R.string.wireless_warning_manual_address), Palette.Warn)
     state.notice?.let { Line(wirelessNoticeText(it), Palette.Warn) }
-    state.beacon?.let { wirelessBeaconText(it) }?.let { Line(it, Palette.Muted) }
 }
 
 /** 二维码外面补的白边占边长的比例（约 2 个模块）。 */

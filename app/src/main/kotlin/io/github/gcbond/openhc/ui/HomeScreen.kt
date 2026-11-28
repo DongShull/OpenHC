@@ -58,6 +58,7 @@ import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.ui.text.style.TextAlign
 import androidx.compose.ui.text.style.TextOverflow
 import androidx.compose.ui.unit.dp
+import androidx.compose.ui.unit.sp
 import io.github.gcbond.openhc.BuildConfig
 import io.github.gcbond.openhc.IdentityLoader
 import io.github.gcbond.openhc.OpenHcApp
@@ -447,9 +448,9 @@ private fun CockpitControlDock(
     val isSessionActive = wired.phase != Phase.IDLE || wireless.phase != WirelessPhase.IDLE
     val nextConnectToast = stringResource(R.string.home_tile_next_connect_toast)
 
-    var connectOnBt by remember(prefs) { mutableStateOf(prefs.connectOnBluetooth) }
-    var audioOn by remember(audioPrefs) { mutableStateOf(audioPrefs.enabled) }
-    var clarity by remember(clarityPrefs) { mutableStateOf(clarityPrefs.clarity) }
+    var connectOnBt by remember(prefs, wired.phase, wireless.phase, wiredOnly) { mutableStateOf(prefs.connectOnBluetooth) }
+    var audioOn by remember(audioPrefs, wired.phase, wireless.phase) { mutableStateOf(audioPrefs.enabled) }
+    var clarity by remember(clarityPrefs, wired.phase, wireless.phase) { mutableStateOf(clarityPrefs.clarity) }
 
     val knownCount = prefs.knownPhoneList.size
     val modeShort = when {
@@ -515,8 +516,13 @@ private fun CockpitControlDock(
             WiredPluggedPill(onClick = actions.onStart)
         }
 
-        // B. 中央 2×2 可操作快捷控制磁贴
+        // B. 中央 2×2 可操作快捷控制磁贴（三段式排版：顶图标与指示 + 中主值 + 底说明，饱满紧实无空洞）
         val clarityMb = (clarity.bitrate ?: 0) / 1_000_000
+        val clarityValue = when (clarity) {
+            VideoClarity.STANDARD -> stringResource(R.string.settings_clarity_standard_short)
+            VideoClarity.HIGH -> stringResource(R.string.settings_clarity_high_short)
+            VideoClarity.HIGHEST -> stringResource(R.string.settings_clarity_highest_short)
+        }
         val claritySub = when (clarity) {
             VideoClarity.STANDARD -> stringResource(R.string.home_tile_clarity_standard)
             VideoClarity.HIGH -> stringResource(R.string.home_tile_clarity_high, clarityMb)
@@ -535,9 +541,14 @@ private fun CockpitControlDock(
                 QuickControlTile(
                     glyph = Glyphs.AutoLink,
                     title = stringResource(R.string.home_tile_auto_reconnect),
+                    value = when {
+                        wiredOnly -> stringResource(R.string.home_tile_state_off)
+                        connectOnBt -> stringResource(R.string.home_tile_auto_on)
+                        else -> stringResource(R.string.home_tile_auto_off)
+                    },
                     subtitle = when {
                         wiredOnly -> stringResource(R.string.home_tile_auto_disabled)
-                        connectOnBt -> stringResource(R.string.home_tile_auto_on)
+                        connectOnBt -> if (knownCount > 0) stringResource(R.string.home_card_known_phones, knownCount) else stringResource(R.string.home_card_no_known_phones)
                         else -> stringResource(R.string.home_tile_auto_off)
                     },
                     active = !wiredOnly && connectOnBt,
@@ -560,6 +571,7 @@ private fun CockpitControlDock(
                 QuickControlTile(
                     glyph = if (audioOn) Glyphs.Speaker else Glyphs.SpeakerOff,
                     title = stringResource(R.string.home_tile_audio),
+                    value = if (audioOn) audioPrefs.codec.label else stringResource(R.string.home_tile_audio_off),
                     subtitle = if (audioOn) {
                         stringResource(R.string.home_tile_audio_on, audioPrefs.codec.label)
                     } else {
@@ -589,10 +601,11 @@ private fun CockpitControlDock(
                 QuickControlTile(
                     glyph = Glyphs.Monitor,
                     title = stringResource(R.string.home_tile_clarity),
+                    value = clarityValue,
                     subtitle = claritySub,
                     active = clarity != VideoClarity.STANDARD,
                     role = Role.Button,
-                    trailing = { TierDots(level = clarityLevel, total = VideoClarity.entries.size) },
+                    trailing = { TierBars(level = clarityLevel, total = VideoClarity.entries.size) },
                     onClick = {
                         val entries = VideoClarity.entries
                         val next = entries[(entries.indexOf(clarity) + 1) % entries.size]
@@ -605,7 +618,8 @@ private fun CockpitControlDock(
                 QuickControlTile(
                     glyph = Glyphs.Power,
                     title = stringResource(R.string.home_tile_boot),
-                    subtitle = stringResource(if (bootOn) R.string.home_tile_boot_on else R.string.home_tile_boot_off),
+                    value = stringResource(if (bootOn) R.string.home_tile_boot_on else R.string.home_tile_boot_off),
+                    subtitle = stringResource(R.string.settings_boot_summary),
                     active = bootOn,
                     positiveTone = true,
                     role = Role.Switch,
@@ -738,6 +752,7 @@ private fun WiredPluggedPill(onClick: () -> Unit) {
 private fun QuickControlTile(
     glyph: ImageVector,
     title: String,
+    value: String,
     subtitle: String,
     active: Boolean,
     role: Role,
@@ -762,14 +777,20 @@ private fun QuickControlTile(
         active -> Palette.TileActiveBorder
         else -> Palette.CardBorder
     }
-    val targetIconTint = when {
-        !enabled -> Palette.Muted
+    val targetIconBg = when {
+        !enabled -> Palette.CardElevated
         active && positiveTone -> Palette.Positive
         active -> Palette.Accent
+        else -> Palette.CardElevated
+    }
+    val targetIconTint = when {
+        !enabled -> Palette.Muted
+        active -> Palette.OnAccent
         else -> Palette.Text2
     }
     val bg by animateColorAsState(targetValue = targetBg, animationSpec = tween(160), label = "tile_bg")
     val border by animateColorAsState(targetValue = targetBorder, animationSpec = tween(160), label = "tile_border")
+    val iconBg by animateColorAsState(targetValue = targetIconBg, animationSpec = tween(160), label = "tile_icon_bg")
     val iconTint by animateColorAsState(targetValue = targetIconTint, animationSpec = tween(160), label = "tile_tint")
 
     Column(
@@ -788,7 +809,7 @@ private fun QuickControlTile(
                 role = role,
                 onClick = onClick,
             )
-            .padding(horizontal = 16.dp, vertical = if (compact) 12.dp else 15.dp),
+            .padding(horizontal = 18.dp, vertical = if (compact) 12.dp else 16.dp),
         verticalArrangement = Arrangement.SpaceBetween,
     ) {
         Row(
@@ -798,25 +819,26 @@ private fun QuickControlTile(
         ) {
             Box(
                 Modifier
-                    .size(if (compact) 34.dp else 38.dp)
-                    .clip(RoundedCornerShape(10.dp))
-                    .background(
-                        when {
-                            active && positiveTone -> Palette.PositiveBackground
-                            active -> Palette.Tint
-                            else -> Palette.CardElevated
-                        },
-                    ),
+                    .size(if (compact) 36.dp else 40.dp)
+                    .clip(RoundedCornerShape(11.dp))
+                    .background(iconBg),
                 contentAlignment = Alignment.Center,
             ) {
-                Icon(glyph, contentDescription = null, tint = iconTint, modifier = Modifier.size(if (compact) 18.dp else 20.dp))
+                Icon(glyph, contentDescription = null, tint = iconTint, modifier = Modifier.size(if (compact) 19.dp else 21.dp))
             }
             trailing()
         }
-        Column(Modifier.padding(top = if (compact) 8.dp else 12.dp)) {
+        Column(verticalArrangement = Arrangement.spacedBy(2.dp)) {
             Text(
                 title,
-                style = UiType.rowTitle(compact).copy(fontWeight = FontWeight.SemiBold),
+                style = UiType.footer(compact).copy(fontWeight = FontWeight.Medium),
+                color = Palette.Muted,
+                maxLines = 1,
+                overflow = TextOverflow.Ellipsis,
+            )
+            Text(
+                value,
+                style = UiType.status.copy(fontSize = if (compact) 17.sp else 20.sp),
                 color = Palette.Text,
                 maxLines = 1,
                 overflow = TextOverflow.Ellipsis,
@@ -853,19 +875,20 @@ private fun TileStateTag(text: String, active: Boolean, positive: Boolean = fals
         modifier = Modifier
             .clip(CircleShape)
             .background(bg)
-            .padding(horizontal = 9.dp, vertical = 3.dp),
+            .padding(horizontal = 10.dp, vertical = 3.dp),
     )
 }
 
+/** 清晰度三段式能量条：远距离大屏一眼辨识当前画质档位。 */
 @Composable
-private fun TierDots(level: Int, total: Int) {
+private fun TierBars(level: Int, total: Int) {
     Row(horizontalArrangement = Arrangement.spacedBy(4.dp), verticalAlignment = Alignment.CenterVertically) {
         for (i in 1..total) {
             Box(
                 Modifier
-                    .size(if (i <= level) 7.dp else 6.dp)
+                    .size(width = 14.dp, height = 5.dp)
                     .clip(CircleShape)
-                    .background(if (i <= level) Palette.Accent else Palette.Muted.copy(alpha = 0.32f)),
+                    .background(if (i <= level) Palette.Accent else Palette.Muted.copy(alpha = 0.28f)),
             )
         }
     }

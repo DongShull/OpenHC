@@ -45,6 +45,7 @@ private fun clarityCardOption(clarity: VideoClarity): CardOption {
             title = stringResource(R.string.settings_clarity_high_short),
             text = stringResource(R.string.settings_clarity_high_card, mbps),
             tag = stringResource(R.string.settings_clarity_tag_balanced),
+            tagHighlight = true,
         )
         VideoClarity.HIGHEST -> CardOption(
             title = stringResource(R.string.settings_clarity_highest_short),

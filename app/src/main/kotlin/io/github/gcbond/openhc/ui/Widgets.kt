@@ -481,7 +481,7 @@ internal fun PillButton(
     }
 }
 
-internal enum class ActionKind { NORMAL, PRIMARY, DANGER }
+internal enum class ActionKind { NORMAL, PRIMARY, ACTIVE, DANGER }
 
 /** 设置页行内、弹框里的小按钮（保存、清除、试听、知道了等）。 */
 @Composable
@@ -497,6 +497,7 @@ internal fun ActionButton(
     val (background, foreground) = when (kind) {
         ActionKind.NORMAL -> Palette.Button to Palette.ButtonText
         ActionKind.PRIMARY -> Palette.On to Palette.OnAccent
+        ActionKind.ACTIVE -> Palette.Tint to Palette.Accent
         ActionKind.DANGER -> Palette.Warn to Palette.Background
     }
     Box(
@@ -506,6 +507,7 @@ internal fun ActionButton(
             .pressScale(interactionSource, enabled = enabled, pressedScale = 0.96f)
             .clip(shape)
             .background(background)
+            .then(if (kind == ActionKind.ACTIVE) Modifier.border(1.dp, Palette.TintBorder, shape) else Modifier)
             .dpadFocusRing(shape)
             .clickable(
                 interactionSource = interactionSource,
@@ -517,7 +519,13 @@ internal fun ActionButton(
             .padding(horizontal = 16.dp, vertical = 6.dp),
         contentAlignment = Alignment.Center,
     ) {
-        Text(text, style = UiType.action(LocalCompact.current), color = foreground)
+        Text(
+            text,
+            style = UiType.action(LocalCompact.current).copy(
+                fontWeight = if (kind == ActionKind.ACTIVE || kind == ActionKind.PRIMARY) FontWeight.SemiBold else FontWeight.Medium,
+            ),
+            color = foreground,
+        )
     }
 }
 
@@ -665,12 +673,20 @@ internal fun SwitchRow(
     onCheckedChange: (Boolean) -> Unit,
 ) {
     val compact = LocalCompact.current
+    val interactionSource = remember { MutableInteractionSource() }
     Row(
         Modifier
             .fillMaxWidth()
             .groupDivider()
             .dpadFocusRing()
-            .toggleable(value = checked, enabled = enabled, role = Role.Switch, onValueChange = onCheckedChange)
+            .toggleable(
+                value = checked,
+                interactionSource = interactionSource,
+                indication = LocalIndication.current,
+                enabled = enabled,
+                role = Role.Switch,
+                onValueChange = onCheckedChange,
+            )
             .rowPadding(compact)
             .alpha(if (enabled) 1f else DISABLED_ALPHA),
         verticalAlignment = Alignment.CenterVertically,
@@ -722,9 +738,14 @@ internal fun ChoiceRow(
 private const val INLINE_OPTIONS_MAX = 4
 private val INLINE_CHOICE_MIN = 560.dp
 
-/** [CardChoiceRow] 的一个选项：名称、一句话说明、可选的小标签（如「试验」）。 */
+/** [CardChoiceRow] 的一个选项：名称、一句话说明、可选的小标签（如「推荐」「试验」）。 */
 @androidx.compose.runtime.Immutable
-internal class CardOption(val title: String, val text: String, val tag: String? = null)
+internal class CardOption(
+    val title: String,
+    val text: String,
+    val tag: String? = null,
+    val tagHighlight: Boolean = false,
+)
 
 /**
  * 组里的一行大选项：名称、一句话，下面几张并排的选项卡片，每张写名称和适合什么情况（文字长、分段放不下时用）。
@@ -933,7 +954,7 @@ private fun OptionCard(option: CardOption, selected: Boolean, modifier: Modifier
                     overflow = TextOverflow.Ellipsis,
                     modifier = Modifier.weight(1f, fill = false),
                 )
-                option.tag?.let { Tag(it) }
+                option.tag?.let { Tag(it, highlight = option.tagHighlight) }
             }
             Box(
                 Modifier
@@ -958,17 +979,17 @@ private fun OptionCard(option: CardOption, selected: Boolean, modifier: Modifier
     }
 }
 
-/** 灰底小标签（「试验」）。 */
+/** 轻量小标签（[highlight] 为真时用柔蓝强调底色突出「推荐」档位）。 */
 @Composable
-internal fun Tag(text: String) {
+internal fun Tag(text: String, highlight: Boolean = false) {
     Text(
         text,
-        style = UiType.footer(false),
-        color = Palette.Text2,
+        style = UiType.footer(false).copy(fontWeight = if (highlight) FontWeight.SemiBold else FontWeight.Normal),
+        color = if (highlight) Palette.Accent else Palette.Text2,
         maxLines = 1,
         modifier = Modifier
             .clip(RoundedCornerShape(8.dp))
-            .background(Palette.Button)
+            .background(if (highlight) Palette.Tint else Palette.Button)
             .padding(horizontal = 8.dp, vertical = 2.dp),
     )
 }
@@ -986,12 +1007,18 @@ internal fun ValueRow(
     onClick: () -> Unit,
 ) {
     val compact = LocalCompact.current
+    val interactionSource = remember { MutableInteractionSource() }
     Row(
         Modifier
             .fillMaxWidth()
             .groupDivider()
             .dpadFocusRing()
-            .clickable(role = Role.Button, onClick = onClick)
+            .clickable(
+                interactionSource = interactionSource,
+                indication = LocalIndication.current,
+                role = Role.Button,
+                onClick = onClick,
+            )
             .rowPadding(compact),
         verticalAlignment = Alignment.CenterVertically,
     ) {

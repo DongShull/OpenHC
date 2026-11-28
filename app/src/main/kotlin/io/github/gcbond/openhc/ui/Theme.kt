@@ -53,11 +53,11 @@ internal object Palette {
     /** 卡片顶部 0.5dp 极细微光高光边，提升层次质感而不花哨。 */
     val CardSheen get() = if (dark) Color(0x1EFFFFFF) else Color(0xCCFFFFFF)
 
-    /** 快捷控制磁贴激活底色与柔和边。 */
-    val TileActive get() = pick(0xFF192434, 0xFFEBF4FF)
-    val TileActiveBorder get() = if (dark) Color(0x4D0A84FF) else Color(0x3D007AFF)
-    val TilePositive get() = pick(0xFF13261E, 0xFFEAF8F0)
-    val TilePositiveBorder get() = if (dark) Color(0x4530D158) else Color(0x3818A957)
+    /** 快捷控制磁贴激活底色与柔和边（避免在浅色模式下显得像硬蓝表单框）。 */
+    val TileActive get() = pick(0xFF172233, 0xFFF2F7FF)
+    val TileActiveBorder get() = if (dark) Color(0x360A84FF) else Color(0x26007AFF)
+    val TilePositive get() = pick(0xFF12241C, 0xFFF0FAF4)
+    val TilePositiveBorder get() = if (dark) Color(0x3630D158) else Color(0x2618A957)
 
     val Text get() = pick(0xFFF3F4F6, 0xFF111318)
 

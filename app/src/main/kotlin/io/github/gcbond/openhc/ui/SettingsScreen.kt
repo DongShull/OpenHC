@@ -113,27 +113,41 @@ internal fun SettingsScreen(
                         onBack = onBack,
                         compact = compact,
                     )
-                    Column(
+                    BoxWithConstraints(
                         Modifier
                             .weight(1f)
-                            .fillMaxHeight()
-                            .verticalScroll(detailScroll)
-                            .padding(
-                                horizontal = if (compact) 26.dp else 36.dp,
-                                vertical = if (compact) 20.dp else 28.dp,
-                            ),
-                        horizontalAlignment = Alignment.CenterHorizontally,
+                            .fillMaxHeight(),
                     ) {
-                        AnimatedContent(
-                            targetState = selected,
-                            modifier = Modifier.widthIn(max = DETAIL_CONTENT_MAX).fillMaxWidth(),
-                            transitionSpec = { fadeIn(tween(150)) togetherWith fadeOut(tween(90)) },
-                            label = "settings_category",
-                        ) { category ->
-                            Column(Modifier.fillMaxWidth()) {
-                                DetailHeader(category, compact)
+                        val minDetailHeight = maxHeight
+                        Column(
+                            Modifier
+                                .fillMaxSize()
+                                .verticalScroll(detailScroll)
+                                .padding(
+                                    horizontal = if (compact) 26.dp else 36.dp,
+                                    vertical = if (compact) 20.dp else 28.dp,
+                                ),
+                            horizontalAlignment = Alignment.CenterHorizontally,
+                        ) {
+                            val verticalPad = if (compact) 40.dp else 56.dp
+                            Column(
+                                Modifier
+                                    .widthIn(max = DETAIL_CONTENT_MAX)
+                                    .fillMaxWidth()
+                                    .heightIn(min = (minDetailHeight - verticalPad).coerceAtLeast(0.dp)),
+                            ) {
+                                // ThemeToggle 固定在 AnimatedContent 之外，切分类时不闪烁。
+                                DetailHeader(selected, compact)
                                 Spacer(Modifier.size(if (compact) 14.dp else 18.dp))
-                                CompositionLocalProvider(LocalGroupTitles provides false) { content(category) }
+                                AnimatedContent(
+                                    targetState = selected,
+                                    modifier = Modifier.fillMaxWidth(),
+                                    transitionSpec = { fadeIn(tween(150)) togetherWith fadeOut(tween(90)) },
+                                    label = "settings_category",
+                                ) { category ->
+                                    CompositionLocalProvider(LocalGroupTitles provides false) { content(category) }
+                                }
+                                Spacer(Modifier.weight(1f, fill = true))
                                 DetailFooter(compact)
                             }
                         }
@@ -261,7 +275,7 @@ private fun SettingsSidebar(
     }
 }
 
-/** 右侧顶部：干净纯文字大标题 + 一行说明，右侧紧凑放日夜切换胶囊。 */
+/** 右侧顶部：干净纯文字大标题（平滑切换），右侧固定常驻日夜切换胶囊不闪烁。 */
 @Composable
 private fun DetailHeader(category: SettingsCategory, compact: Boolean) {
     Row(
@@ -269,22 +283,29 @@ private fun DetailHeader(category: SettingsCategory, compact: Boolean) {
         verticalAlignment = Alignment.CenterVertically,
         horizontalArrangement = Arrangement.SpaceBetween,
     ) {
-        Column(Modifier.weight(1f)) {
-            Text(
-                stringResource(category.label),
-                style = UiType.title(compact).copy(fontSize = if (compact) 22.sp else 26.sp),
-                color = Palette.Text,
-                maxLines = 1,
-                overflow = TextOverflow.Ellipsis,
-            )
-            Text(
-                stringResource(category.subtitle) + " · " + stringResource(R.string.settings_apply_hint),
-                style = UiType.rowSummary(compact),
-                color = Palette.Muted,
-                maxLines = 1,
-                overflow = TextOverflow.Ellipsis,
-                modifier = Modifier.padding(top = 3.dp),
-            )
+        AnimatedContent(
+            targetState = category,
+            modifier = Modifier.weight(1f),
+            transitionSpec = { fadeIn(tween(140)) togetherWith fadeOut(tween(80)) },
+            label = "settings_header_title",
+        ) { current ->
+            Column(Modifier.fillMaxWidth()) {
+                Text(
+                    stringResource(current.label),
+                    style = UiType.title(compact).copy(fontSize = if (compact) 22.sp else 26.sp),
+                    color = Palette.Text,
+                    maxLines = 1,
+                    overflow = TextOverflow.Ellipsis,
+                )
+                Text(
+                    stringResource(current.subtitle) + " · " + stringResource(R.string.settings_apply_hint),
+                    style = UiType.rowSummary(compact),
+                    color = Palette.Muted,
+                    maxLines = 1,
+                    overflow = TextOverflow.Ellipsis,
+                    modifier = Modifier.padding(top = 3.dp),
+                )
+            }
         }
         Spacer(Modifier.width(16.dp))
         ThemeToggle()

@@ -183,7 +183,7 @@ private fun LiveLogRow() {
     val viewButtons: @Composable () -> Unit = {
         ActionButton(
             text = stringResource(R.string.settings_diag_live_warn_only),
-            kind = if (warnOnly) ActionKind.PRIMARY else ActionKind.NORMAL,
+            kind = if (warnOnly) ActionKind.ACTIVE else ActionKind.NORMAL,
             onClick = {
                 warnOnly = !warnOnly
                 following = true
@@ -191,7 +191,7 @@ private fun LiveLogRow() {
         )
         ActionButton(
             text = stringResource(if (paused) R.string.settings_diag_live_resume else R.string.settings_diag_live_pause),
-            kind = if (paused) ActionKind.PRIMARY else ActionKind.NORMAL,
+            kind = if (paused) ActionKind.ACTIVE else ActionKind.NORMAL,
             onClick = {
                 val resuming = paused
                 paused = !paused
