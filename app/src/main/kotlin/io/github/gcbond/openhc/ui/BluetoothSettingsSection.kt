@@ -67,12 +67,15 @@ internal fun BluetoothAddressSection(settings: AppSettings, systemBluetoothAddre
     val fieldFocus = remember { FocusRequester() }
     val saveFocus = remember { FocusRequester() }
     val clearFocus = remember { FocusRequester() }
+    var feedback by remember { mutableStateOf<Pair<String, Boolean>?>(null) }
 
     GroupRow(spacing = 8.dp) {
         val normalized = BluetoothAddressPolicy.normalize(manualText)
         val invalid = manualText.isNotBlank() && normalized == null
         val canSave = normalized != null && normalized != savedManual
         val canClear = savedManual != null || manualText.isNotEmpty()
+        val savedMessage = normalized?.let { stringResource(R.string.settings_bt_saved, it) }
+        val clearedMessage = stringResource(R.string.settings_bt_cleared)
 
         val moveOutDown = {
             keyboardController?.hide()
@@ -86,7 +89,10 @@ internal fun BluetoothAddressSection(settings: AppSettings, systemBluetoothAddre
 
         OutlinedTextField(
             value = manualText,
-            onValueChange = { manualText = it },
+            onValueChange = {
+                manualText = it
+                feedback = null
+            },
             label = { Text(stringResource(R.string.settings_bt_manual_label)) },
             isError = invalid,
             supportingText = if (invalid) {
@@ -133,6 +139,7 @@ internal fun BluetoothAddressSection(settings: AppSettings, systemBluetoothAddre
                     settings.manualBluetoothAddress = normalized
                     savedManual = normalized
                     manualText = normalized ?: ""
+                    feedback = savedMessage?.let { it to true }
                     runCatching { clearFocus.requestFocus() }
                 },
                 modifier = Modifier
@@ -150,6 +157,7 @@ internal fun BluetoothAddressSection(settings: AppSettings, systemBluetoothAddre
                     settings.manualBluetoothAddress = null
                     savedManual = null
                     manualText = ""
+                    feedback = clearedMessage to false
                     runCatching { fieldFocus.requestFocus() }
                 },
                 modifier = Modifier
@@ -160,6 +168,9 @@ internal fun BluetoothAddressSection(settings: AppSettings, systemBluetoothAddre
                     },
                 enabled = canClear,
             )
+        }
+        feedback?.let { (text, positive) ->
+            RowDescription(text, color = if (positive) Palette.Positive else Palette.Muted)
         }
     }
 }

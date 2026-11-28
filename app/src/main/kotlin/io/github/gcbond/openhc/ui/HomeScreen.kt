@@ -31,14 +31,18 @@ import androidx.compose.material3.Icon
 import androidx.compose.material3.Text
 import androidx.compose.runtime.Composable
 import androidx.compose.runtime.CompositionLocalProvider
+import androidx.compose.runtime.LaunchedEffect
 import androidx.compose.runtime.remember
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.draw.alpha
 import androidx.compose.ui.draw.clip
+import androidx.compose.ui.focus.FocusRequester
+import androidx.compose.ui.focus.focusRequester
 import androidx.compose.ui.graphics.Color
 import androidx.compose.ui.graphics.vector.ImageVector
 import androidx.compose.ui.platform.LocalContext
+import androidx.compose.ui.platform.LocalView
 import androidx.compose.ui.res.stringResource
 import androidx.compose.ui.semantics.Role
 import androidx.compose.ui.text.font.FontWeight
@@ -146,7 +150,7 @@ internal fun HomeScreen(
 
                 val bodyModifier = (if (fill) Modifier.weight(1f) else Modifier)
                     .fillMaxWidth()
-                    .padding(top = gap, bottom = if (compact) 8.dp else 12.dp)
+                    .padding(top = gap, bottom = if (dualPane) (if (compact) 12.dp else 20.dp) else if (compact) 8.dp else 12.dp)
 
                 if (dualPane) {
                     Row(
@@ -203,7 +207,9 @@ internal fun HomeScreen(
                         modifier = bodyModifier,
                     )
                 }
-                HomeFooter(prefs)
+                if (!dualPane) {
+                    HomeFooter(prefs)
+                }
             }
         }
     }
@@ -334,19 +340,36 @@ private fun PrimaryCockpitCard(
                     )
                 }
             }
-            else -> Hero(
-                fillHeight,
-                top = {
-                    if (dualPane) {
-                        CockpitIdleHero(wiredOnly, plugged)
-                    } else {
-                        Ways(wiredOnly, wide)
+            else -> {
+                val primaryFocus = remember { FocusRequester() }
+                val view = LocalView.current
+                LaunchedEffect(wiredOnly, plugged, identityLoaded) {
+                    if (!view.isInTouchMode) {
+                        runCatching { primaryFocus.requestFocus() }
                     }
-                },
-                body = { IdleLines(wireless, wiredOnly) },
-                buttons = { IdleButtons(wired, wireless, identityLoaded, wiredOnly, plugged, actions, wirelessActions) },
-                buttonsFirst = true,
-            )
+                }
+                Hero(
+                    fillHeight,
+                    top = {
+                        if (dualPane) {
+                            CockpitIdleHero(wiredOnly, plugged)
+                        } else {
+                            Ways(wiredOnly, wide)
+                        }
+                    },
+                    body = {
+                        if (dualPane) {
+                            if (!wiredOnly) WirelessIdleLines(wireless)
+                        } else {
+                            IdleLines(wireless, wiredOnly)
+                        }
+                    },
+                    buttons = {
+                        IdleButtons(wired, wireless, identityLoaded, wiredOnly, plugged, actions, wirelessActions, primaryFocus)
+                    },
+                    buttonsFirst = true,
+                )
+            }
         }
     }
 }
@@ -865,23 +888,27 @@ private fun IdleButtons(
     plugged: Boolean,
     actions: HomeActions,
     wirelessActions: WirelessActions,
+    primaryFocus: FocusRequester,
 ) {
+    val primaryModifier = Modifier.focusRequester(primaryFocus)
     when {
-        wired.notice == Notice.VpnConsentRequired -> PillButton(stringResource(R.string.action_grant_vpn), actions.onGrantVpn, wide = true)
+        wired.notice == Notice.VpnConsentRequired ->
+            PillButton(stringResource(R.string.action_grant_vpn), actions.onGrantVpn, modifier = primaryModifier, wide = true)
         wired.notice is Notice.TrustStoreCorrupt ->
-            PillButton(stringResource(R.string.action_reset_trust), actions.onResetTrustStore, wide = true)
+            PillButton(stringResource(R.string.action_reset_trust), actions.onResetTrustStore, modifier = primaryModifier, wide = true)
         else -> {
             // 手机插着却没在连（点过停止、还没同意 VPN 授权、插线时界面没开）：给一个连它的按钮，不用拔了重插。
             if (plugged) {
                 PillButton(
                     stringResource(R.string.home_connect_plugged),
                     actions.onStart,
+                    modifier = if (wiredOnly) primaryModifier else Modifier,
                     primary = wiredOnly,
                     wide = wiredOnly,
                     glyph = Glyphs.Plug,
                 )
             }
-            if (!wiredOnly) WirelessIdleButtons(wireless, identityLoaded, wirelessActions)
+            if (!wiredOnly) WirelessIdleButtons(wireless, identityLoaded, wirelessActions, primaryModifier)
         }
     }
 }

@@ -1,5 +1,10 @@
 package io.github.gcbond.openhc.ui
 
+import androidx.compose.animation.AnimatedContent
+import androidx.compose.animation.core.tween
+import androidx.compose.animation.fadeIn
+import androidx.compose.animation.fadeOut
+import androidx.compose.animation.togetherWith
 import androidx.compose.foundation.background
 import androidx.compose.foundation.clickable
 import androidx.compose.foundation.layout.Arrangement
@@ -30,6 +35,7 @@ import androidx.compose.material3.Icon
 import androidx.compose.material3.Text
 import androidx.compose.runtime.Composable
 import androidx.compose.runtime.CompositionLocalProvider
+import androidx.compose.runtime.LaunchedEffect
 import androidx.compose.runtime.getValue
 import androidx.compose.runtime.mutableStateOf
 import androidx.compose.runtime.saveable.rememberSaveable
@@ -88,6 +94,10 @@ internal fun SettingsScreen(
         CompositionLocalProvider(LocalCompact provides compact) {
             if (rail) {
                 var selected by rememberSaveable { mutableStateOf(SettingsCategory.PICTURE) }
+                val detailScroll = rememberScrollState()
+                LaunchedEffect(selected) {
+                    detailScroll.scrollTo(0)
+                }
                 Row(Modifier.fillMaxSize()) {
                     SettingsSidebar(
                         selected = selected,
@@ -99,18 +109,25 @@ internal fun SettingsScreen(
                         Modifier
                             .weight(1f)
                             .fillMaxHeight()
-                            .verticalScroll(rememberScrollState())
+                            .verticalScroll(detailScroll)
                             .padding(
                                 horizontal = if (compact) 24.dp else 32.dp,
                                 vertical = if (compact) 18.dp else 26.dp,
                             ),
                         horizontalAlignment = Alignment.CenterHorizontally,
                     ) {
-                        Column(Modifier.widthIn(max = DETAIL_CONTENT_MAX).fillMaxWidth()) {
-                            DetailHeader(selected, compact)
-                            Spacer(Modifier.size(if (compact) 14.dp else 18.dp))
-                            CompositionLocalProvider(LocalGroupTitles provides false) { content(selected) }
-                            DetailFooter(compact)
+                        AnimatedContent(
+                            targetState = selected,
+                            modifier = Modifier.widthIn(max = DETAIL_CONTENT_MAX).fillMaxWidth(),
+                            transitionSpec = { fadeIn(tween(150)) togetherWith fadeOut(tween(90)) },
+                            label = "settings_category",
+                        ) { category ->
+                            Column(Modifier.fillMaxWidth()) {
+                                DetailHeader(category, compact)
+                                Spacer(Modifier.size(if (compact) 14.dp else 18.dp))
+                                CompositionLocalProvider(LocalGroupTitles provides false) { content(category) }
+                                DetailFooter(compact)
+                            }
                         }
                     }
                 }

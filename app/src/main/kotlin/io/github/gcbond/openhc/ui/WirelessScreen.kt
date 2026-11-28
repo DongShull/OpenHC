@@ -303,23 +303,28 @@ internal fun WirelessActiveButtons(state: WirelessUiState, actions: WirelessActi
 
 /** 空闲时的按钮：「开始连接」；缺权限、蓝牙没开等时换成去处理的按钮。 */
 @Composable
-internal fun WirelessIdleButtons(state: WirelessUiState, identityLoaded: Boolean, actions: WirelessActions) {
+internal fun WirelessIdleButtons(
+    state: WirelessUiState,
+    identityLoaded: Boolean,
+    actions: WirelessActions,
+    primaryModifier: Modifier = Modifier,
+) {
     val start = stringResource(R.string.home_connect_start)
     when (val notice = state.notice) {
         is WirelessNotice.PermissionsDenied -> if (notice.permanently) {
-            PillButton(stringResource(R.string.wireless_action_app_settings), actions.onOpenAppSettings)
+            PillButton(stringResource(R.string.wireless_action_app_settings), actions.onOpenAppSettings, modifier = primaryModifier)
             PillButton(start, actions.onStart, primary = false, glyph = Glyphs.Wifi)
         } else {
-            PillButton(stringResource(R.string.wireless_action_grant), actions.onStart)
+            PillButton(stringResource(R.string.wireless_action_grant), actions.onStart, modifier = primaryModifier)
         }
         WirelessNotice.BluetoothOff -> {
-            PillButton(stringResource(R.string.wireless_action_enable_bt), actions.onEnableBluetooth)
+            PillButton(stringResource(R.string.wireless_action_enable_bt), actions.onEnableBluetooth, modifier = primaryModifier)
             PillButton(start, actions.onStart, primary = false, glyph = Glyphs.Wifi)
         }
         WirelessNotice.BluetoothAddressMissing ->
-            PillButton(stringResource(R.string.wireless_action_fill_bt), actions.onOpenSettings)
+            PillButton(stringResource(R.string.wireless_action_fill_bt), actions.onOpenSettings, modifier = primaryModifier)
         is WirelessNotice.TrustStoreCorrupt ->
-            PillButton(stringResource(R.string.action_reset_trust), actions.onResetTrustStore)
-        else -> PillButton(start, actions.onStart, enabled = identityLoaded, wide = true, glyph = Glyphs.Wifi)
+            PillButton(stringResource(R.string.action_reset_trust), actions.onResetTrustStore, modifier = primaryModifier)
+        else -> PillButton(start, actions.onStart, modifier = primaryModifier, enabled = identityLoaded, wide = true, glyph = Glyphs.Wifi)
     }
 }

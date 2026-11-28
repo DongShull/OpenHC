@@ -4,6 +4,7 @@ import android.os.Handler
 import android.os.Looper
 import androidx.compose.foundation.background
 import androidx.compose.foundation.border
+import androidx.compose.foundation.focusable
 import androidx.compose.foundation.layout.Arrangement
 import androidx.compose.foundation.layout.Box
 import androidx.compose.foundation.layout.BoxWithConstraints
@@ -28,11 +29,17 @@ import androidx.compose.runtime.getValue
 import androidx.compose.runtime.mutableIntStateOf
 import androidx.compose.runtime.mutableStateOf
 import androidx.compose.runtime.remember
+import androidx.compose.runtime.rememberCoroutineScope
 import androidx.compose.runtime.setValue
 import androidx.compose.runtime.snapshotFlow
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.draw.clip
+import androidx.compose.ui.input.key.Key
+import androidx.compose.ui.input.key.KeyEventType
+import androidx.compose.ui.input.key.key
+import androidx.compose.ui.input.key.onPreviewKeyEvent
+import androidx.compose.ui.input.key.type
 import androidx.compose.ui.platform.LocalContext
 import androidx.compose.ui.res.stringResource
 import androidx.compose.ui.unit.dp
@@ -46,6 +53,7 @@ import io.github.gcbond.openhc.diagnostics.LogRecorder
 import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.channels.Channel
 import kotlinx.coroutines.delay
+import kotlinx.coroutines.launch
 import kotlinx.coroutines.withContext
 
 /**
@@ -254,6 +262,7 @@ private fun LiveLogRow() {
 
         exportNote?.let { (text, warn) -> RowNote(text, warn) }
 
+        val scope = rememberCoroutineScope()
         val boxShape = RoundedCornerShape(12.dp)
         val lineStyle = remember(compact) {
             UiType.value(compact).copy(
@@ -267,7 +276,34 @@ private fun LiveLogRow() {
                 .height(if (compact) 250.dp else 380.dp)
                 .clip(boxShape)
                 .background(Palette.SegmentBackground)
-                .border(1.dp, Palette.Divider, boxShape),
+                .border(1.dp, Palette.Divider, boxShape)
+                .dpadFocusRing(boxShape)
+                .focusable(enabled = visibleEntries.isNotEmpty())
+                .onPreviewKeyEvent { event ->
+                    if (event.type != KeyEventType.KeyDown || visibleEntries.isEmpty()) return@onPreviewKeyEvent false
+                    when (event.key) {
+                        Key.DirectionUp -> {
+                            if (!listState.canScrollBackward) return@onPreviewKeyEvent false
+                            following = false
+                            val target = (listState.firstVisibleItemIndex - 4).coerceAtLeast(0)
+                            scope.launch { listState.scrollToItem(target) }
+                            true
+                        }
+                        Key.DirectionDown -> {
+                            if (!listState.canScrollForward) {
+                                following = true
+                                return@onPreviewKeyEvent false
+                            }
+                            val target = (listState.firstVisibleItemIndex + 4).coerceAtMost(visibleEntries.lastIndex)
+                            scope.launch {
+                                listState.scrollToItem(target)
+                                if (!listState.canScrollForward) following = true
+                            }
+                            true
+                        }
+                        else -> false
+                    }
+                },
         ) {
             if (visibleEntries.isEmpty()) {
                 val emptyText = if (entries.isEmpty()) {
