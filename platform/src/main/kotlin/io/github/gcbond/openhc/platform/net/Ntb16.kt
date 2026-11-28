@@ -99,6 +99,66 @@ object Ntb16 {
         return block
     }
 
+    /**
+     * 多数据报原地组帧：各以太网帧已按顺序并对齐放在 `buffer` 的 `offsets[i]..offsets[i]+lengths[i)` 中，
+     * 这里在 `layout.ndpIndex` 写好含 [count] 项与终止项的 NDP16 及 NTH16、补齐零字节，返回整块长度。
+     */
+    fun frameBatchInPlace(
+        buffer: ByteArray,
+        layout: NtbOutLayout,
+        offsets: IntArray,
+        lengths: IntArray,
+        count: Int,
+        sequence: Int,
+        zlpPacketSize: Int,
+    ): Int {
+        require(count >= 1) { "数据报个数必须为正: $count" }
+        require(zlpPacketSize >= 0) { "端点包长不能为负: $zlpPacketSize" }
+        val ndp = layout.ndpIndex
+        val ndpLen = layout.ndpLength(count)
+        val firstOffset = offsets[0]
+        require(firstOffset >= ndp + ndpLen) { "首个数据报偏移 $firstOffset 与 NDP16 重叠（结束于 ${ndp + ndpLen}）" }
+
+        var cursor = firstOffset
+        for (i in 0 until count) {
+            val off = offsets[i]
+            val len = lengths[i]
+            require(len >= MIN_ETHERNET_FRAME) { "数据报短于以太网头: $len" }
+            require(off >= cursor) { "第 $i 个数据报偏移 $off 与前一项重叠（结束于 $cursor）" }
+            if (off > cursor) buffer.fill(0, cursor, off)
+            val payload = maxOf(len, MIN_DATAGRAM_LENGTH)
+            if (payload > len) buffer.fill(0, off + len, off + payload)
+            cursor = off + payload
+        }
+        var block = cursor
+        block += (4 - (block and 3)) and 3
+        if (zlpPacketSize > 0 && block % zlpPacketSize == 0) block += 1
+        require(block <= MAX_BLOCK_LENGTH) { "NTB16 放不下: $block 字节" }
+        require(block <= buffer.size) { "缓冲不够: 需要 $block 字节，只有 ${buffer.size}" }
+
+        // NTH16 到首个数据报之间的空隙，以及末尾补齐清零。
+        buffer.fill(0, NTH16_LENGTH, firstOffset)
+        if (block > cursor) buffer.fill(0, cursor, block)
+
+        buffer.putU32le(0, NTH16_SIGNATURE)
+        buffer.putU16le(4, NTH16_LENGTH)
+        buffer.putU16le(6, sequence and 0xFFFF)
+        buffer.putU16le(8, block)
+        buffer.putU16le(10, ndp)
+
+        buffer.putU32le(ndp, NDP16_SIGNATURE)
+        buffer.putU16le(ndp + 4, ndpLen)
+        buffer.putU16le(ndp + 6, 0)
+        var entry = ndp + NDP16_HEADER_LENGTH
+        for (i in 0 until count) {
+            buffer.putU16le(entry, offsets[i])
+            buffer.putU16le(entry + 2, maxOf(lengths[i], MIN_DATAGRAM_LENGTH))
+            entry += NDP16_ENTRY_LENGTH
+        }
+        // 终止项 {0,0} 已在上面清零。
+        return block
+    }
+
     /** 把 `datagram[offset, offset + length)` 组成一块新的 NTB。 */
     fun frame(
         datagram: ByteArray,
@@ -194,7 +254,22 @@ object Ntb16 {
  * 数据报偏移满足 `偏移 % wNdpOutDivisor == wNdpOutPayloadRemainder`。实测手机报 4/0/4，
  * 算出来就是 NDP16 在 12、数据报在 28。
  */
-class NtbOutLayout private constructor(val ndpIndex: Int, val datagramOffset: Int) {
+class NtbOutLayout private constructor(
+    val ndpIndex: Int,
+    val datagramOffset: Int,
+    val divisor: Int,
+    val remainder: Int,
+    val alignment: Int,
+) {
+    /** 含 [datagramCount] 项和终止项的 NDP16 字节长度。 */
+    fun ndpLength(datagramCount: Int): Int =
+        Ntb16.NDP16_HEADER_LENGTH + (datagramCount + 1) * Ntb16.NDP16_ENTRY_LENGTH
+
+    /** 将任意偏移向上对齐到满足 `offset % divisor == remainder` 的位置。 */
+    fun alignDatagram(offset: Int): Int = offset + (remainder - offset).mod(divisor)
+
+    /** 预留最多 [maxDatagrams] 项 NDP16 后，首个数据报的对齐偏移（[maxDatagrams] 为 1 时等于 [datagramOffset]）。 */
+    fun firstDatagramOffset(maxDatagrams: Int): Int = alignDatagram(ndpIndex + ndpLength(maxDatagrams.coerceAtLeast(1)))
 
     override fun toString(): String = "NtbOutLayout(ndp=$ndpIndex, datagram=$datagramOffset)"
 
@@ -221,7 +296,7 @@ class NtbOutLayout private constructor(val ndpIndex: Int, val datagramOffset: In
             val ndp = alignUp(Ntb16.NTH16_LENGTH, a)
             val minimum = ndp + Ntb16.SINGLE_NDP16_LENGTH
             val datagram = minimum + (r - minimum).mod(d)
-            return NtbOutLayout(ndp, datagram)
+            return NtbOutLayout(ndp, datagram, d, r, a)
         }
 
         /** 参数是否合规（不合规时 [of] 会用默认值代替）。 */

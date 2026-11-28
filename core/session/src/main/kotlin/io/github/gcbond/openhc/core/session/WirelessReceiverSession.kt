@@ -150,6 +150,7 @@ class WirelessReceiverSession internal constructor(
     /** 手机已经连上 WiFi 上的控制端口：此后蓝牙连接被关掉是正常的。 */
     private var phoneOnWifi = false
 
+    private var dialDeadline: Long? = null
     private var authAcceptDeadline: Long? = null
     private var authDeadline: Long? = null
     private var networkDeadline: Long? = null
@@ -163,6 +164,7 @@ class WirelessReceiverSession internal constructor(
         get() {
             if (ended) return null
             var min = nearby?.takeIf { control?.state == State.OPEN }?.nextTickAtMillis
+            min = minDeadline(min, dialDeadline)
             min = minDeadline(min, reconnectDeadline)
             min = minDeadline(min, authAcceptDeadline)
             min = minDeadline(min, authDeadline)
@@ -206,6 +208,7 @@ class WirelessReceiverSession internal constructor(
         return session(nowMillis) { out ->
             val ep = newEndpoint(WirelessChannel.BLUETOOTH_CONTROL, listener = false)
             control = ep
+            dialDeadline = nowMillis + config.timeouts.dialConnectMillis
             out.add(
                 WirelessAction.ConnectRfcomm(ep.id, WirelessChannel.BLUETOOTH_CONTROL, address, NearbySession.BLUETOOTH_SERVICE_UUID, null),
             )
@@ -230,6 +233,7 @@ class WirelessReceiverSession internal constructor(
             control = listener.accept
             val dial = newEndpoint(WirelessChannel.BLUETOOTH_CONTROL, listener = false)
             dialEndpoint = dial
+            dialDeadline = nowMillis + config.timeouts.dialConnectMillis
             out.add(
                 WirelessAction.ConnectRfcomm(dial.id, WirelessChannel.BLUETOOTH_CONTROL, address, NearbySession.BLUETOOTH_SERVICE_UUID, null),
             )
@@ -270,6 +274,7 @@ class WirelessReceiverSession internal constructor(
                 }
                 dialEndpoint = null
                 pendingDial = null
+                dialDeadline = null
                 out.add(WirelessEvent.PhoneBluetoothConnected(remote))
                 // 控制通道的监听先不关：它一关，它占的 RFCOMM 通道号就空出来，接着开的认证子通道监听会分到同一个号。
                 // 手机和车机之间控制通道正占着这个号的连接，同一对设备同一个通道号不能再开第二条，手机连认证子通道必失败。
@@ -305,6 +310,7 @@ class WirelessReceiverSession internal constructor(
         ep.state = State.OPEN
         when (ep) {
             control -> {
+                dialDeadline = null
                 out.add(WirelessEvent.PhoneBluetoothConnected(target.address))
                 val layer = layers.bluetoothNearby(initiator = true)
                 nearby = layer
@@ -396,6 +402,7 @@ class WirelessReceiverSession internal constructor(
                 close(ep, out)
                 dialEndpoint = null
                 pendingDial = null
+                dialDeadline = null
                 diag(SessionLayer.SESSION, "车机拨手机没拨通，接着等扫码（$message）", out)
             }
             // 手机关蓝牙连接时，系统常报成读出错而不是读到结尾：用完了的连接出错当作被关闭。
@@ -442,6 +449,21 @@ class WirelessReceiverSession internal constructor(
         val n = nearby
         if (n != null && control?.state == State.OPEN) {
             handleBluetooth(call(WirelessStep.BLUETOOTH) { n.onTick(nowMillis) }, nowMillis, out)
+        }
+        if (due(dialDeadline, nowMillis)) {
+            dialDeadline = null
+            val dial = dialEndpoint
+            if (dial != null) {
+                close(dial, out)
+                dialEndpoint = null
+                pendingDial = null
+                diag(SessionLayer.SESSION, "车机拨手机 ${config.timeouts.dialConnectMillis} 毫秒内没连上，接着等扫码", out)
+            } else if (control?.state == State.OPENING && reconnect != null) {
+                finish(
+                    WirelessEndReason.ReconnectFailed("连不上手机：${config.timeouts.dialConnectMillis} 毫秒内蓝牙连接超时"),
+                    nowMillis, out,
+                )
+            }
         }
         if (due(reconnectDeadline, nowMillis)) {
             finish(WirelessEndReason.ReconnectFailed(if (awaitingPhone) "手机上一直没确认" else "手机一直没回应"), nowMillis, out)
@@ -582,6 +604,7 @@ class WirelessReceiverSession internal constructor(
         val target = checkNotNull(pendingDial)
         dialEndpoint = null
         pendingDial = null
+        dialDeadline = null
         if (ep.state != State.OPENING) return
         close(control, out)
         close(controlListener, out)
@@ -858,6 +881,7 @@ class WirelessReceiverSession internal constructor(
         wipeKey()
         pendingAuthRequests.clear()
         pendingDataChannel = null
+        dialDeadline = null
         reconnectDeadline = null
         authAcceptDeadline = null
         authDeadline = null

@@ -191,6 +191,7 @@ class VideoDecoder @JvmOverloads constructor(
     }
 
     private val lock = ReentrantLock()
+    private val configDone = lock.newCondition()
 
     // ---------------------------------------------------------------- 以下由 lock 保护（带 @Volatile 的可以不拿锁读）
 
@@ -213,6 +214,12 @@ class VideoDecoder @JvmOverloads constructor(
     /** 刚 flush 过、还没重新 start：这期间解码器交来的回调都已作废，丢掉。 */
     @Volatile
     private var flushing = false
+
+    /** 正在解码线程上异步创建/配置 MediaCodec（不阻塞送帧线程，到达的帧先在 cache 排队）。 */
+    private var configuring = false
+    private var configGeneration = 0
+    private var configuringSps: H264Sps? = null
+    private var configuringSurface: Surface? = null
 
     private var codecSps: H264Sps? = null
     private var codecDecodeOrder = false
@@ -358,15 +365,22 @@ class VideoDecoder @JvmOverloads constructor(
      * 正在配置解码器时会等配置完成（通常一两百毫秒以内）。
      */
     fun setSurface(surface: Surface?) {
+        var detached: MediaCodec? = null
         lock.withLock {
             if (closed) return
             val target = surface?.takeIf { it.isValid }
-            if (target === viewSurface) return
+            val previous = viewSurface
+            if (target === previous) return
             viewSurface = target
             surfaceGeneration++
             // 排在下面的重放前面：重放出来的最后一帧按新 Surface 重新起拍。
             handler.post(pacerReset)
-            val c = codec ?: return
+            if (target == null && configuring && previous != null && configuringSurface === previous) {
+                // 视图 Surface 即将销毁而解码线程恰好在用它配置：作废这次配置并短暂等它撤出对旧 Surface 的引用。
+                configGeneration++
+                awaitConfigIdleLocked(SURFACE_DESTROY_WAIT_MS)
+            }
+            val c = codec ?: return@withLock
             if (target != null) {
                 if (switchOutputLocked(c, target)) {
                     outputOnPlaceholder = false
@@ -374,9 +388,9 @@ class VideoDecoder @JvmOverloads constructor(
                     Log.i(TAG, "输出切回视图 Surface")
                     scheduleReplayLocked(c)
                 } else {
-                    teardownLocked(ResyncReason.SURFACE_LOST)
+                    detached = teardownLocked(ResyncReason.SURFACE_LOST, asyncRelease = false)
                 }
-                return
+                return@withLock
             }
             val sps = codecSps
             if (options.decodeWithoutSurface && sps != null) {
@@ -386,12 +400,13 @@ class VideoDecoder @JvmOverloads constructor(
                     outputOnPlaceholder = true
                     if (switchOutputLocked(c, placeholderSurface)) {
                         Log.i(TAG, "没有视图 Surface，输出切到占位 Surface，继续解码")
-                        return
+                        return@withLock
                     }
                 }
             }
-            teardownLocked(ResyncReason.SURFACE_LOST)
+            detached = teardownLocked(ResyncReason.SURFACE_LOST, asyncRelease = false)
         }
+        detached?.let { releaseQuietly(it) }
     }
 
     /** HiSight 视频回调：在调用 feedVideo 的线程上同步执行，帧数据只在回调期间有效。 */
@@ -426,24 +441,28 @@ class VideoDecoder @JvmOverloads constructor(
 
     /** 换一路新码流（例如重新协商之后）：释放解码器，忘掉记下的参数集，等下一个关键帧。 */
     fun reset() {
-        lock.withLock {
+        val detached = lock.withLock {
             if (closed) return
-            teardownLocked(null)
+            val c = teardownLocked(null, asyncRelease = false)
             params.clear()
             sawBSlice = false
             maxInputSize = 0
+            c
         }
+        detached?.let { releaseQuietly(it) }
     }
 
     /** 释放解码器和线程。可在任意线程重复调用；之后送来的帧直接丢弃。 */
     override fun close() {
-        lock.withLock {
+        val detached = lock.withLock {
             if (closed) return
             closed = true
-            teardownLocked(null)
+            val c = teardownLocked(null, asyncRelease = false)
             cache.release()
             viewSurface = null
+            c
         }
+        detached?.let { releaseQuietly(it) }
         handler.removeCallbacksAndMessages(null)
         // 刷新回调登记在解码线程的 Choreographer 上，也在那个线程上撤掉（退出前会执行已经到时的消息）。
         handler.post { choreographer?.removeFrameCallback(vsyncCallback) }
@@ -472,13 +491,13 @@ class VideoDecoder @JvmOverloads constructor(
         if (scan.sliceCount == 0 && !scan.isParameterSetsOnly) return false
 
         val current = codec
-        val known = codecSps
+        val known = codecSps ?: configuringSps
         val latest = params.sps
-        if (current != null && known != null && latest != null) {
+        if ((current != null || configuring) && known != null && latest != null) {
             val formatChanged = needsNewDecoder(known, latest)
             // 按解码顺序立即输出遇上要重排的 B 帧，显示顺序会乱，得换成正常输出的配置。
             // SPS 已经声明不需要重排时，B 条带也是按显示顺序来的，不用换。
-            val reorderUnsafe = codecDecodeOrder && sawBSlice && !known.reorderFree
+            val reorderUnsafe = current != null && codecDecodeOrder && sawBSlice && !known.reorderFree
             if (formatChanged || reorderUnsafe) {
                 Log.i(
                     TAG,
@@ -488,7 +507,7 @@ class VideoDecoder @JvmOverloads constructor(
                         "出现 B 帧，改用按显示顺序输出的配置"
                     },
                 )
-                // 这一帧就能开始解码时当场重建，不算丢帧，也不通知。
+                // 这一帧就能开始解码时当场安排异步重建，不算丢帧，也不通知；旧解码器交由解码线程释放，不阻塞协议线程。
                 teardownLocked(if (scan.isSyncPoint) null else ResyncReason.FORMAT_CHANGED)
             }
         }
@@ -497,13 +516,13 @@ class VideoDecoder @JvmOverloads constructor(
             // 等关键帧期间单独发来的参数集已经记下了，不算丢帧。
             return if (scan.isParameterSetsOnly) false else drop(null)
         }
-        if (codec == null) {
+        if (codec == null && !configuring) {
             val sps = params.sps
             if (sps == null || !params.isComplete) {
                 Log.w(TAG, "关键帧之前没收到完整的 SPS/PPS，继续等")
                 return drop(null)
             }
-            if (!configureLocked(sps)) return drop(null)
+            if (!startAsyncConfigureLocked(sps, rewindOnInstall = false)) return drop(null)
         }
         waitingForSync = false
 
@@ -879,7 +898,23 @@ class VideoDecoder @JvmOverloads constructor(
 
     // ---------------------------------------------------------------- 解码器生命周期
 
-    private fun configureLocked(sps: H264Sps): Boolean {
+    private fun awaitConfigIdleLocked(timeoutMs: Long) {
+        var remaining = timeoutMs * 1_000_000L
+        while (configuring && remaining > 0L) {
+            remaining = try {
+                configDone.awaitNanos(remaining)
+            } catch (e: InterruptedException) {
+                Thread.currentThread().interrupt()
+                return
+            }
+        }
+    }
+
+    /**
+     * 在持锁状态下准备不可变配置参数，并把耗时的 MediaCodec 创建/配置/启动交到解码线程无锁执行，
+     * 避免首帧启动、分辨率切换或故障恢复时阻塞协议线程（音频、触摸与保活）。
+     */
+    private fun startAsyncConfigureLocked(sps: H264Sps, rewindOnInstall: Boolean): Boolean {
         val surface = outputSurfaceLocked(sps)
         if (surface == null) {
             requireSyncLocked(ResyncReason.SURFACE_LOST)
@@ -889,31 +924,104 @@ class VideoDecoder @JvmOverloads constructor(
         val csd1 = params.csd1()
         val decodeOrder = sps.reorderFree || !sawBSlice
         val inputSize = maxOf(maxInputSize, sps.codedWidth * sps.codedHeight, MIN_INPUT_SIZE)
-        val candidates: List<DecoderCatalog.Candidate?> =
-            DecoderCatalog.candidates(sps.width, sps.height).ifEmpty { listOf(null) }
-        for (candidate in candidates) {
-            val vendorKeys = if (options.vendorLowLatency && candidate != null) {
-                VendorLowLatency.keys(candidate.name, decodeOrder)
-            } else {
-                emptyList()
-            }
-            val tiers = if (vendorKeys.isEmpty()) TIERS_WITHOUT_VENDOR else TIERS
-            for (tier in tiers) {
-                val c = createCodec(candidate) ?: break
-                val format = buildFormat(candidate, tier, sps, csd0, csd1, inputSize, vendorKeys)
-                if (startCodec(c, format, surface, tier)) {
-                    installLocked(c, sps, decodeOrder, surface, tier)
-                    return true
+        val fpsHint = hintFps
+        val gen = ++configGeneration
+        configuring = true
+        configuringSps = sps
+        configuringSurface = surface
+        handler.post {
+            configureOnDecoderThread(gen, sps, csd0, csd1, decodeOrder, inputSize, fpsHint, surface, rewindOnInstall)
+        }
+        return true
+    }
+
+    /** 解码线程无锁创建、配置并启动 MediaCodec，只在最终装入或回滚时短暂拿锁。 */
+    private fun configureOnDecoderThread(
+        gen: Int,
+        sps: H264Sps,
+        csd0: ByteArray,
+        csd1: ByteArray,
+        decodeOrder: Boolean,
+        inputSize: Int,
+        fpsHint: Int,
+        surface: Surface,
+        rewindOnInstall: Boolean,
+    ) {
+        var startedCodec: MediaCodec? = null
+        var startedTier = TIER_BARE
+        try {
+            if (lock.withLock { closed || configGeneration != gen }) return
+            val candidates: List<DecoderCatalog.Candidate?> =
+                DecoderCatalog.candidates(sps.width, sps.height).ifEmpty { listOf(null) }
+            loop@ for (candidate in candidates) {
+                val vendorKeys = if (options.vendorLowLatency && candidate != null) {
+                    VendorLowLatency.keys(candidate.name, decodeOrder)
+                } else {
+                    emptyList()
                 }
-                releaseQuietly(c)
+                val tiers = if (vendorKeys.isEmpty()) TIERS_WITHOUT_VENDOR else TIERS
+                for (tier in tiers) {
+                    if (lock.withLock { closed || configGeneration != gen }) return
+                    val c = createCodec(candidate) ?: break
+                    val format = buildFormat(candidate, tier, sps, csd0, csd1, inputSize, fpsHint, vendorKeys)
+                    if (startCodec(c, format, surface, tier)) {
+                        startedCodec = c
+                        startedTier = tier
+                        break@loop
+                    }
+                    releaseQuietly(c)
+                }
+            }
+            var toRelease: MediaCodec? = null
+            lock.withLock {
+                if (closed || configGeneration != gen) {
+                    toRelease = startedCodec
+                    return@withLock
+                }
+                val c = startedCodec
+                if (c == null) {
+                    Log.e(TAG, "没有能用的 H.264 解码器（${sps.width}x${sps.height}）")
+                    if (placeholder?.surface === surface) closePlaceholderLocked()
+                    val lost = cache.clear()
+                    if (lost > 0) stats.onDropped(lost)
+                    val detail = "${sps.width}x${sps.height}"
+                    notifyListener { onDecoderUnavailable(detail) }
+                    requireSyncLocked(ResyncReason.DECODER_ERROR)
+                    return@withLock
+                }
+                var actualSurface = surface
+                val currentView = viewSurface
+                if (currentView != null && currentView !== surface && currentView.isValid) {
+                    if (switchOutputLocked(c, currentView)) {
+                        actualSurface = currentView
+                    } else {
+                        toRelease = c
+                        val lost = cache.clear()
+                        if (lost > 0) stats.onDropped(lost)
+                        requireSyncLocked(ResyncReason.SURFACE_LOST)
+                        return@withLock
+                    }
+                }
+                installLocked(c, sps, decodeOrder, actualSurface, startedTier)
+                if (rewindOnInstall) {
+                    val frames = cache.rewind(now())
+                    replayStartedMs = now()
+                    replayFrames = frames
+                    Log.i(TAG, "新解码器从关键帧起补送缓存：先重放 $frames 帧（只上屏最后一帧），再接着送 ${cache.pendingEntries} 个条目里剩下的")
+                }
+                pumpLocked()
+            }
+            toRelease?.let { releaseQuietly(it) }
+        } finally {
+            lock.withLock {
+                if (configGeneration == gen || configuringSurface === surface) {
+                    configuring = false
+                    configuringSps = null
+                    configuringSurface = null
+                    configDone.signalAll()
+                }
             }
         }
-        Log.e(TAG, "没有能用的 H.264 解码器（${sps.width}x${sps.height}）")
-        if (placeholder?.surface === surface) closePlaceholderLocked()
-        val detail = "${sps.width}x${sps.height}"
-        notifyListener { onDecoderUnavailable(detail) }
-        requireSyncLocked(ResyncReason.DECODER_ERROR)
-        return false
     }
 
     private fun createCodec(candidate: DecoderCatalog.Candidate?): MediaCodec? = try {
@@ -957,6 +1065,7 @@ class VideoDecoder @JvmOverloads constructor(
         csd0: ByteArray,
         csd1: ByteArray,
         inputSize: Int,
+        fpsHint: Int,
         vendorKeys: List<Pair<String, Int>>,
     ): MediaFormat {
         val format = MediaFormat.createVideoFormat(DecoderCatalog.MIME, sps.width, sps.height)
@@ -965,7 +1074,13 @@ class VideoDecoder @JvmOverloads constructor(
         if (tier <= TIER_INPUT_SIZE) format.setInteger(MediaFormat.KEY_MAX_INPUT_SIZE, inputSize)
         if (tier <= TIER_STANDARD) {
             format.setInteger(MediaFormat.KEY_PRIORITY, 0) // 0 = 实时
-            if (hintFps > 0) format.setInteger(MediaFormat.KEY_OPERATING_RATE, hintFps)
+            if (fpsHint > 0) {
+                // 声明高于目标帧率的工作频率（按硬件能力封顶），促使解码器时钟升频降低单帧解码延迟。
+                val desired = maxOf(fpsHint * 2, MIN_OPERATING_RATE_FPS)
+                val cap = candidate?.maxOperatingRate ?: 0
+                val operatingRate = if (cap >= fpsHint) minOf(desired, cap) else fpsHint
+                format.setInteger(MediaFormat.KEY_OPERATING_RATE, operatingRate)
+            }
             // 不支持低延迟模式的解码器碰上这个键可能直接配置失败，所以只给声明支持的。
             if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.R && candidate?.lowLatency == true) {
                 format.setInteger(MediaFormat.KEY_LOW_LATENCY, 1)
@@ -1002,17 +1117,22 @@ class VideoDecoder @JvmOverloads constructor(
         handler.post { updateVideoSize(width, height) }
     }
 
-    /** 释放当前解码器（没有就什么都不做），缓存作废，之后丢帧等关键帧；[reason] 为 null 时不通知。 */
-    private fun teardownLocked(reason: ResyncReason?) {
-        val released = releaseCodecLocked()
+    /** 拆下当前解码器（没有就什么都不做），缓存作废，之后丢帧等关键帧；[asyncRelease] 为 true 时交由解码线程释放，绝不阻塞持锁方。 */
+    private fun teardownLocked(reason: ResyncReason?, asyncRelease: Boolean = true): MediaCodec? {
+        val released = detachCodecLocked()
         if (released != null) Log.i(TAG, "解码器已释放" + (reason?.let { "（$it）" } ?: ""))
         val lost = cache.clear()
         if (lost > 0) stats.onDropped(lost)
         requireSyncLocked(reason)
+        if (released != null && asyncRelease) {
+            handler.post { releaseQuietly(released) }
+            return null
+        }
+        return released
     }
 
-    /** 只释放解码器本身（没有就什么都不做），缓存不动。返回释放掉的解码器。 */
-    private fun releaseCodecLocked(): MediaCodec? {
+    /** 只拆下解码器本身（没有就什么都不做），缓存不动。返回拆下的解码器供锁外释放。 */
+    private fun detachCodecLocked(): MediaCodec? {
         val c = codec
         codec = null
         codecName = null
@@ -1020,8 +1140,12 @@ class VideoDecoder @JvmOverloads constructor(
         codecDecodeOrder = false
         retiringCodec = null
         flushing = false
+        configGeneration++
+        configuring = false
+        configuringSps = null
+        configuringSurface = null
+        configDone.signalAll()
         freeInputs.clear()
-        if (c != null) releaseQuietly(c)
         closePlaceholderLocked()
         outputOnPlaceholder = false
         stats.onDecoderReset(now())
@@ -1032,7 +1156,12 @@ class VideoDecoder @JvmOverloads constructor(
     private fun retireLocked(c: MediaCodec, reason: ResyncReason) {
         if (codec !== c || retiringCodec === c) return
         retiringCodec = c
-        handler.post { lock.withLock { if (codec === c) teardownLocked(reason) } }
+        handler.post {
+            val detached = lock.withLock {
+                if (codec === c) teardownLocked(reason, asyncRelease = false) else null
+            }
+            detached?.let { releaseQuietly(it) }
+        }
     }
 
     /**
@@ -1050,26 +1179,26 @@ class VideoDecoder @JvmOverloads constructor(
         Log.w(TAG, "一帧 $length 字节，超过输入缓冲 $capacity 字节，按 $grown 字节重建解码器")
         maxInputSize = grown
         retiringCodec = c
-        handler.post { lock.withLock { if (codec === c) rebuildFromCacheLocked(length) } }
+        handler.post { rebuildFromCacheOnDecoderThread(c, length) }
     }
 
-    /** 解码线程：换一个解码器，从缓存段首起补送，不用等手机的下一个关键帧。缓存不完整、或者帧大过缓冲上限时只能等关键帧。 */
-    private fun rebuildFromCacheLocked(length: Int) {
-        val sps = params.sps
-        if (sps == null || length > maxInputSize || !cache.historyComplete) {
-            teardownLocked(ResyncReason.INPUT_TOO_LARGE)
-            return
+    /** 解码线程：锁外释放旧解码器后异步重建，从缓存段首起补送，不用等手机的下一个关键帧。 */
+    private fun rebuildFromCacheOnDecoderThread(expected: MediaCodec, length: Int) {
+        val oldCodec: MediaCodec?
+        lock.withLock {
+            if (closed || codec !== expected) return
+            val sps = params.sps
+            if (sps == null || length > maxInputSize || !cache.historyComplete) {
+                oldCodec = teardownLocked(ResyncReason.INPUT_TOO_LARGE, asyncRelease = false)
+            } else {
+                oldCodec = detachCodecLocked()
+                if (!startAsyncConfigureLocked(sps, rewindOnInstall = true)) {
+                    val lost = cache.clear()
+                    if (lost > 0) stats.onDropped(lost)
+                }
+            }
         }
-        releaseCodecLocked()
-        if (!configureLocked(sps)) {
-            val lost = cache.clear()
-            if (lost > 0) stats.onDropped(lost)
-            return
-        }
-        val frames = cache.rewind(now())
-        replayStartedMs = now()
-        replayFrames = frames
-        Log.i(TAG, "新解码器从关键帧起补送缓存：先重放 $frames 帧（只上屏最后一帧），再接着送 ${cache.pendingEntries} 个条目里剩下的")
+        oldCodec?.let { releaseQuietly(it) }
     }
 
     private fun requireSyncLocked(reason: ResyncReason?) {
@@ -1322,6 +1451,8 @@ class VideoDecoder @JvmOverloads constructor(
         const val MAX_INPUT_SIZE = 16 * 1024 * 1024
 
         const val PLACEHOLDER_IMAGES = 2
+        const val MIN_OPERATING_RATE_FPS = 120
+        const val SURFACE_DESTROY_WAIT_MS = 500L
 
         /** 每个新解码器头几帧打一行「到达后等了多久才送进去」。 */
         const val LOG_FIRST_FEEDS = 3

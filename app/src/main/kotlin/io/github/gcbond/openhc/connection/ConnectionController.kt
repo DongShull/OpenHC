@@ -21,9 +21,11 @@ import io.github.gcbond.openhc.core.nearby.NearbySession
 import io.github.gcbond.openhc.core.session.ReceiverConfig
 import io.github.gcbond.openhc.core.session.ReceiverSession
 import io.github.gcbond.openhc.core.session.SessionEvent
+import io.github.gcbond.openhc.core.session.SessionOutput
 import io.github.gcbond.openhc.core.session.SocketRunner
 import io.github.gcbond.openhc.core.session.VideoParameters
 import io.github.gcbond.openhc.input.MediaKeys
+import io.github.gcbond.openhc.input.TouchInputCoalescer
 import io.github.gcbond.openhc.platform.log.Log
 import io.github.gcbond.openhc.platform.media.VideoDecoder
 import io.github.gcbond.openhc.platform.net.VpnConsent
@@ -224,24 +226,43 @@ class ConnectionController(context: Context) {
     }
 
     /**
-     * 投屏视图换算好的触摸（主线程）。回控就绪前不发；发送在协议线程上做，异常就地接住：
-     * 任务里抛出的异常会让整个执行器退出。
+     * 投屏视图换算好的触摸（主线程）。回控就绪前不发；高频同指 MOVE 经 [TouchInputCoalescer] 合并，
+     * 发送在协议线程上做，异常就地接住：任务里抛出的异常会让整个执行器退出。
      */
     fun sendInput(input: HiSightInput) {
         val current = inputTarget ?: return
         if (!current.inputReady) return
+        if (!current.touchCoalescer.offer(input)) return
         current.runner.submit {
-            try {
-                current.session.sendInput(input)
-            } catch (e: IllegalStateException) {
-                // 两边的按下状态对不上（例如回控就绪前的按下没发出去）：清本地状态，下一次按下重新开始。
-                Log.d(TAG, "触摸状态对不上，清掉重来：${e.message}")
-                mutableTouchResets.update { it + 1 }
-                emptyList()
-            } catch (e: IllegalArgumentException) {
-                Log.w(TAG, "触摸不合法，丢弃：${e.message}")
-                emptyList()
+            var batch: MutableList<SessionOutput>? = null
+            var single: List<SessionOutput>? = null
+            current.touchCoalescer.drain { item ->
+                val outputs = try {
+                    current.session.sendInput(item)
+                } catch (e: IllegalStateException) {
+                    // 两边的按下状态对不上（例如回控就绪前的按下没发出去）：清本地状态，下一次按下重新开始。
+                    Log.d(TAG, "触摸状态对不上，清掉重来：${e.message}")
+                    mutableTouchResets.update { it + 1 }
+                    emptyList()
+                } catch (e: IllegalArgumentException) {
+                    Log.w(TAG, "触摸不合法，丢弃：${e.message}")
+                    emptyList()
+                }
+                if (outputs.isNotEmpty()) {
+                    if (batch != null) {
+                        batch!!.addAll(outputs)
+                    } else if (single == null) {
+                        single = outputs
+                    } else {
+                        batch = ArrayList<SessionOutput>(single!!.size + outputs.size).apply {
+                            addAll(single!!)
+                            addAll(outputs)
+                        }
+                        single = null
+                    }
+                }
             }
+            batch ?: single ?: emptyList()
         }
     }
 
@@ -472,6 +493,7 @@ class ConnectionController(context: Context) {
 
         @Volatile
         var inputReady = false
+        val touchCoalescer = TouchInputCoalescer()
     }
 
     /** 视频回调的转接：解码器要等协商出参数才建，建好前到的帧丢掉（第一帧总在 PLAY 之后）。 */

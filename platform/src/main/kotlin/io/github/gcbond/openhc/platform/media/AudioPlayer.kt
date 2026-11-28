@@ -367,14 +367,14 @@ class AudioPlayer(
         return if (format.encoding == Encoding.AAC || trackRate == format.sampleRate) frames else frames * trackRate / format.sampleRate
     }
 
-    /** 写一段 16 位小端 PCM；没在放就先预填再开始放（数据已经攒够了才会到这里）。遇到音轨失效（如车机开门切音频路由）自动重建。 */
-    private fun writePcm(data: ByteArray, offset: Int, length: Int) {
+    /** 写一段 16 位小端 PCM；没在放就先尽量预填再开始放（数据已经攒够了才会到这里）。遇到音轨失效（如车机开门切音频路由）自动重建。 */
+    private fun writePcm(data: ByteArray, offset: Int, length: Int, allowExtraPrefill: Boolean = true) {
         var t = track ?: return
         var done = 0
         var zeroWrites = 0
         while (done < length && !closed && !dead) {
             if (!playing) {
-                // 停着时先非阻塞填进第一块，再 play()，避免刚起播瞬间空缓冲触发欠载。
+                // 停着时先非阻塞预填：PCM 单块仅 ~5ms，顺带把队列里已就绪的块也尽量填满音轨缓冲再 play()，避免首拍欠载。
                 val prefill = t.write(data, offset + done, length - done, AudioTrack.WRITE_NON_BLOCKING)
                 if (prefill == ERROR_DEAD_OBJECT) {
                     t = rebuildTrack("AudioTrack.write（预填）返回 ERROR_DEAD_OBJECT") ?: return
@@ -386,19 +386,60 @@ class AudioPlayer(
                 }
                 done += prefill
                 framesWritten += prefill / trackFrameBytes
+                var leftover: AudioJitterQueue.Chunk? = null
+                var leftoverOff = 0
+                if (allowExtraPrefill && done >= length && format.encoding == Encoding.PCM_16) {
+                    var extraChunks = 0
+                    while (extraChunks < MAX_PREFILL_CHUNKS && !closed && !dead) {
+                        val next = queue.take(0) ?: break
+                        val w = t.write(next.data, 0, next.length, AudioTrack.WRITE_NON_BLOCKING)
+                        if (w == ERROR_DEAD_OBJECT) {
+                            queue.recycle(next)
+                            rebuildTrack("AudioTrack.write（连续预填）返回 ERROR_DEAD_OBJECT")
+                            return
+                        }
+                        if (w < 0) {
+                            queue.recycle(next)
+                            fatal("AudioTrack.write 返回 $w")
+                            return
+                        }
+                        framesWritten += w / trackFrameBytes
+                        extraChunks++
+                        if (w < next.length) {
+                            leftover = next
+                            leftoverOff = w
+                            break
+                        }
+                        queue.recycle(next)
+                    }
+                }
+                if (closed || dead) {
+                    leftover?.let(queue::recycle)
+                    return
+                }
                 try {
                     t.play()
                 } catch (e: IllegalStateException) {
+                    leftover?.let(queue::recycle)
                     t = rebuildTrack("AudioTrack.play 异常（${e.message}）") ?: return
                     continue
                 }
                 playing = true
-                val buffered = (queue.bufferedFrames + (length - done) / trackFrameBytes + remainingTrackFrames(t)) * 1000 / trackRate
+                val leftoverFrames = leftover?.let { (it.length - leftoverOff) / trackFrameBytes } ?: 0
+                val buffered = (queue.bufferedFrames + (length - done) / trackFrameBytes + leftoverFrames + remainingTrackFrames(t)) * 1000 / trackRate
                 if (!started) {
                     started = true
                     emit(Event.Started(buffered))
                 } else {
                     emit(Event.Resumed(buffered))
+                }
+                if (leftover != null) {
+                    try {
+                        writePcm(leftover.data, leftoverOff, leftover.length - leftoverOff, allowExtraPrefill = false)
+                    } finally {
+                        queue.recycle(leftover)
+                    }
+                    return
                 }
                 if (done >= length) break
             }
@@ -588,17 +629,21 @@ class AudioPlayer(
             when {
                 index >= 0 -> {
                     wait = 0L
-                    if (info.size > 0) {
+                    val size = info.size
+                    var copied = false
+                    if (size > 0) {
                         val output = codec.getOutputBuffer(index)
                         if (output != null) {
-                            if (pcm.size < info.size) pcm = ByteArray(info.size)
+                            if (pcm.size < size) pcm = ByteArray(size)
                             output.position(info.offset)
-                            output.get(pcm, 0, info.size)
-                            decoderOutFrames += info.size / trackFrameBytes
-                            writePcm(pcm, 0, info.size)
+                            output.get(pcm, 0, size)
+                            decoderOutFrames += size / trackFrameBytes
+                            copied = true
                         }
                     }
+                    // 拷贝完 PCM 立刻归还解码器输出缓冲，避免阻塞写 AudioTrack 期间占着解码器池。
                     codec.releaseOutputBuffer(index, false)
+                    if (copied) writePcm(pcm, 0, size)
                 }
                 index == MediaCodec.INFO_OUTPUT_FORMAT_CHANGED -> {
                     val out = codec.outputFormat
@@ -692,6 +737,7 @@ class AudioPlayer(
         const val MAX_TRACK_REBUILDS = 5
         const val MAX_ZERO_WRITES = 20
         const val ZERO_WRITE_SLEEP_MS = 5L
+        const val MAX_PREFILL_CHUNKS = 12
         /** 等同于 AudioTrack.ERROR_DEAD_OBJECT（API 24 公开，值固定为 -6，兼容 minSdk 23）。 */
         const val ERROR_DEAD_OBJECT = -6
         const val PCM_SCRATCH = 16 * 1024

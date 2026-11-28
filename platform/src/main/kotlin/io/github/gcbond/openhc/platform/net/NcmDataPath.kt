@@ -1,6 +1,7 @@
 package io.github.gcbond.openhc.platform.net
 
 import io.github.gcbond.openhc.core.common.MalformedMessageException
+import java.util.concurrent.ArrayBlockingQueue
 import java.util.concurrent.atomic.AtomicBoolean
 import java.util.concurrent.atomic.AtomicInteger
 import java.util.concurrent.atomic.AtomicLong
@@ -19,6 +20,9 @@ interface NtbPort {
     /** 发送端点的最大包长，见 [Ntb16.blockLength]。 */
     val zlpPacketSize: Int
 
+    /** 单块出向 NTB 允许打包的数据报上限（默认 1，表示单帧发送）。 */
+    val maxOutDatagrams: Int get() = 1
+
     /** 读一块到 `buffer[0, receiveSize)`。返回字节数（>0）；0 表示这段时间没有数据；负数表示链路出错。 */
     fun receive(buffer: ByteArray, timeoutMs: Int): Int
 
@@ -33,6 +37,11 @@ interface PacketTunnel {
      * 0 表示暂时没有，接着读；负数表示隧道已关闭或已被 [wakeup] 唤醒，不要再读。
      */
     fun read(buffer: ByteArray, offset: Int, maxLength: Int): Int
+
+    /**
+     * 非阻塞尝试再读一个已经就绪的包（用于零等待出向合并）；没有就绪包返回 0，隧道关闭或已唤醒返回负数。
+     */
+    fun tryRead(buffer: ByteArray, offset: Int, maxLength: Int): Int = 0
 
     /** 写一个包；写不进去返回 false（包被丢弃）。 */
     fun write(buffer: ByteArray, offset: Int, length: Int): Boolean
@@ -139,18 +148,36 @@ class NcmDataPath(
     private val usbReceiveErrors = AtomicLong()
     private val usbSendFailures = AtomicLong()
 
+    private class RxSlot(val buffer: ByteArray) {
+        var length: Int = 0
+    }
+
+    private val rxEndSentinel = RxSlot(ByteArray(0))
+    private val rxFree = ArrayBlockingQueue<RxSlot>(RX_POOL_SIZE + 1)
+    private val rxPending = ArrayBlockingQueue<RxSlot>(RX_POOL_SIZE + 1)
+
     @Volatile
     private var receiver: Thread? = null
+
+    @Volatile
+    private var deliverer: Thread? = null
 
     @Volatile
     private var transmitter: Thread? = null
 
     val isRunning: Boolean get() = running.get()
 
-    /** 起两个搬运线程。只能调一次。 */
+    /** 起收包、解包投递与发送三条流水线线程。只能调一次。 */
     fun start() {
         check(started.compareAndSet(false, true)) { "数据面只能启动一次" }
         running.set(true)
+        rxFree.clear()
+        rxPending.clear()
+        repeat(RX_POOL_SIZE) { rxFree.add(RxSlot(ByteArray(port.receiveSize))) }
+        deliverer = Thread({ deliverLoop() }, "OpenHC-NcmDeliver").apply {
+            isDaemon = true
+            start()
+        }
         receiver = Thread({ receiveLoop() }, "OpenHC-NcmRx").apply {
             isDaemon = true
             start()
@@ -162,15 +189,17 @@ class NcmDataPath(
     }
 
     /**
-     * 停止并等两个线程退出（最多 [Timing.joinTimeoutMs]）。可在任意线程、重复调用；
-     * 在搬运线程上调时不等它自己。返回两个线程是否都已退出。
+     * 停止并等全部搬运线程退出（最多 [Timing.joinTimeoutMs]）。可在任意线程、重复调用；
+     * 在搬运线程上调时不等它自己。返回全部线程是否都已退出。
      */
     fun stop(): Boolean {
         running.set(false)
         tunnel.wakeup()
+        rxPending.offer(rxEndSentinel)
+        rxFree.offer(rxEndSentinel)
         val deadline = System.nanoTime() + timing.joinTimeoutMs * 1_000_000
         var allStopped = true
-        for (thread in listOf(receiver, transmitter)) {
+        for (thread in listOf(receiver, deliverer, transmitter)) {
             if (thread == null || thread === Thread.currentThread()) continue
             val remainingMs = (deadline - System.nanoTime()) / 1_000_000
             if (remainingMs > 0) {
@@ -200,7 +229,7 @@ class NcmDataPath(
         usbSendFailures = usbSendFailures.get(),
     )
 
-    // ---------------------------------------------------------------- 手机 → 车机
+    // ---------------------------------------------------------------- 手机 → 车机（两级流水线：USB bulk-IN → 拆帧写 TUN）
 
     private fun receiveLoop() {
         try {
@@ -208,7 +237,49 @@ class NcmDataPath(
         } catch (_: Throwable) {
             // 单元测试或受限环境下拿不到优先级时照常运行。
         }
-        val buffer = ByteArray(port.receiveSize)
+        var consecutiveErrors = 0
+        try {
+            while (running.get()) {
+                val slot = rxFree.take()
+                if (slot === rxEndSentinel || !running.get()) {
+                    if (slot === rxEndSentinel) rxFree.offer(rxEndSentinel)
+                    return
+                }
+                val n = port.receive(slot.buffer, timing.receiveTimeoutMs)
+                if (n < 0) {
+                    rxFree.offer(slot)
+                    usbReceiveErrors.incrementAndGet()
+                    if (++consecutiveErrors >= timing.maxConsecutiveErrors) {
+                        linkDown(LinkDown.USB_LINK_LOST)
+                        return
+                    }
+                    Thread.sleep(timing.errorBackoffMs)
+                    continue
+                }
+                consecutiveErrors = 0
+                if (n == 0) {
+                    rxFree.offer(slot)
+                    continue
+                }
+                slot.length = n
+                rxPending.put(slot)
+            }
+        } catch (e: InterruptedException) {
+            Thread.currentThread().interrupt()
+        } catch (e: RuntimeException) {
+            // 不让异常带出线程（安卓上未捕获的异常会结束整个应用），按链路断开收尾。
+            linkDown(LinkDown.INTERNAL_ERROR)
+        } finally {
+            rxPending.offer(rxEndSentinel)
+        }
+    }
+
+    private fun deliverLoop() {
+        try {
+            android.os.Process.setThreadPriority(android.os.Process.THREAD_PRIORITY_URGENT_DISPLAY)
+        } catch (_: Throwable) {
+            // 同上。
+        }
         val replyBuffer = ByteArray(Ntb16.blockLength(port.outLayout, MAX_REPLY_FRAME, port.zlpPacketSize))
         val output = object : EthernetEndpoint.Output {
             override fun sendToPhone(frame: ByteArray, offset: Int, length: Int) {
@@ -231,36 +302,30 @@ class NcmDataPath(
             }
         }
         val sink = Ntb16.DatagramSink { frame, offset, length -> handleFrame(frame, offset, length, output) }
-        var consecutiveErrors = 0
         try {
             while (running.get()) {
-                val n = port.receive(buffer, timing.receiveTimeoutMs)
-                if (n < 0) {
-                    usbReceiveErrors.incrementAndGet()
-                    if (++consecutiveErrors >= timing.maxConsecutiveErrors) {
-                        linkDown(LinkDown.USB_LINK_LOST)
-                        return
-                    }
-                    Thread.sleep(timing.errorBackoffMs)
-                    continue
+                val slot = rxPending.take()
+                if (slot === rxEndSentinel || !running.get()) {
+                    if (slot === rxEndSentinel) rxPending.offer(rxEndSentinel)
+                    return
                 }
-                consecutiveErrors = 0
-                if (n == 0) continue
-                if (ntbFromPhone.incrementAndGet() == 1L) milestone(Milestone.FIRST_NTB_FROM_PHONE, "$n 字节")
-                bytesFromPhone.addAndGet(n.toLong())
+                val n = slot.length
                 try {
-                    Ntb16.parse(buffer, 0, n, sink)
+                    if (ntbFromPhone.incrementAndGet() == 1L) milestone(Milestone.FIRST_NTB_FROM_PHONE, "$n 字节")
+                    bytesFromPhone.addAndGet(n.toLong())
+                    Ntb16.parse(slot.buffer, 0, n, sink)
                 } catch (e: MalformedMessageException) {
                     // 单块坏数据只丢这一块，线程必须活着，否则整条链路会静默失效。
                     if (malformedNtb.incrementAndGet() == 1L) {
                         milestone(Milestone.FIRST_MALFORMED_NTB, e.message ?: "")
                     }
+                } finally {
+                    rxFree.offer(slot)
                 }
             }
         } catch (e: InterruptedException) {
             Thread.currentThread().interrupt()
         } catch (e: RuntimeException) {
-            // 不让异常带出线程（安卓上未捕获的异常会结束整个应用），按链路断开收尾。
             linkDown(LinkDown.INTERNAL_ERROR)
         }
     }
@@ -298,6 +363,87 @@ class NcmDataPath(
             // 同上。
         }
         val layout = port.outLayout
+        val maxBlock = port.maxOutBlockLength
+        val maxBatch = if (maxBlock >= MIN_BATCH_BLOCK_BYTES) port.maxOutDatagrams.coerceIn(1, MAX_TX_BATCH) else 1
+        if (maxBatch == 1) {
+            transmitSingleLoop(layout)
+            return
+        }
+        val firstOffset = layout.firstDatagramOffset(maxBatch)
+        val buffer = ByteArray(maxOf(maxBlock, firstOffset + Ethernet.HEADER_LENGTH + MAX_PACKET) + 16)
+        val offsets = IntArray(maxBatch)
+        val lengths = IntArray(maxBatch)
+        try {
+            while (running.get()) {
+                val packetOffset = firstOffset + Ethernet.HEADER_LENGTH
+                val n = tunnel.read(buffer, packetOffset, MAX_PACKET)
+                if (n < 0) {
+                    linkDown(LinkDown.TUNNEL_CLOSED)
+                    return
+                }
+                if (n == 0) continue
+                if (endpoint.wrapForPhone(buffer, packetOffset, n) != EthernetEndpoint.Outbound.WRAPPED) {
+                    droppedToPhone.incrementAndGet()
+                    continue
+                }
+                val firstLen = endpoint.frameLength(buffer, packetOffset)
+                var end = firstOffset + maxOf(firstLen, Ntb16.MIN_DATAGRAM_LENGTH)
+                if (paddedBlockLength(end, port.zlpPacketSize) > maxBlock) {
+                    droppedToPhone.incrementAndGet()
+                    continue
+                }
+                offsets[0] = firstOffset
+                lengths[0] = firstLen
+                var count = 1
+                var totalBytes = firstLen.toLong()
+                var tunnelClosedAfterBatch = false
+
+                // 零等待合并：仅顺带取出内核队列中已经就绪的后续 IP 包一起打进同一块 NTB16。
+                while (count < maxBatch && running.get()) {
+                    val nextOff = layout.alignDatagram(end)
+                    val maxRoom = maxBlock - nextOff - Ethernet.HEADER_LENGTH - BLOCK_TAIL_MARGIN
+                    if (maxRoom < MIN_COALESCE_PACKET_ROOM) break
+                    val nextPacketOffset = nextOff + Ethernet.HEADER_LENGTH
+                    val ni = tunnel.tryRead(buffer, nextPacketOffset, minOf(MAX_PACKET, maxRoom))
+                    if (ni < 0) {
+                        tunnelClosedAfterBatch = true
+                        break
+                    }
+                    if (ni == 0) break
+                    if (endpoint.wrapForPhone(buffer, nextPacketOffset, ni) != EthernetEndpoint.Outbound.WRAPPED) {
+                        droppedToPhone.incrementAndGet()
+                        continue
+                    }
+                    val lenI = endpoint.frameLength(buffer, nextPacketOffset)
+                    val nextEnd = nextOff + maxOf(lenI, Ntb16.MIN_DATAGRAM_LENGTH)
+                    if (paddedBlockLength(nextEnd, port.zlpPacketSize) > maxBlock) {
+                        droppedToPhone.incrementAndGet()
+                        break
+                    }
+                    offsets[count] = nextOff
+                    lengths[count] = lenI
+                    count++
+                    totalBytes += lenI
+                    end = nextEnd
+                }
+                if (sendBatch(buffer, offsets, lengths, count)) {
+                    bytesToPhone.addAndGet(totalBytes)
+                    val prev = packetsToPhone.getAndAdd(count.toLong())
+                    if (prev == 0L) {
+                        milestone(Milestone.FIRST_PACKET_TO_PHONE, "$firstLen 字节")
+                    }
+                }
+                if (tunnelClosedAfterBatch) {
+                    linkDown(LinkDown.TUNNEL_CLOSED)
+                    return
+                }
+            }
+        } catch (e: RuntimeException) {
+            linkDown(LinkDown.INTERNAL_ERROR)
+        }
+    }
+
+    private fun transmitSingleLoop(layout: NtbOutLayout) {
         val packetOffset = layout.datagramOffset + Ethernet.HEADER_LENGTH
         val buffer = ByteArray(Ntb16.blockLength(layout, Ethernet.HEADER_LENGTH + MAX_PACKET, port.zlpPacketSize))
         try {
@@ -327,6 +473,24 @@ class NcmDataPath(
         }
     }
 
+    private fun paddedBlockLength(rawEnd: Int, zlpPacketSize: Int): Int {
+        var block = rawEnd + ((4 - (rawEnd and 3)) and 3)
+        if (zlpPacketSize > 0 && block % zlpPacketSize == 0) block += 1
+        return block
+    }
+
+    private fun sendBatch(buffer: ByteArray, offsets: IntArray, lengths: IntArray, count: Int): Boolean {
+        val layout = port.outLayout
+        val sent = synchronized(sendLock) {
+            val block = Ntb16.frameBatchInPlace(
+                buffer, layout, offsets, lengths, count, sequence.getAndIncrement(), port.zlpPacketSize,
+            )
+            port.send(buffer, block, timing.sendTimeoutMs)
+        }
+        if (!sent) usbSendFailures.incrementAndGet()
+        return sent
+    }
+
     /** 以太网帧已放在 `buffer[outLayout.datagramOffset, … + frameLength)`：组 NTB 并发出。 */
     private fun sendFrame(buffer: ByteArray, frameLength: Int): Boolean {
         val layout = port.outLayout
@@ -347,6 +511,8 @@ class NcmDataPath(
     private fun linkDown(reason: LinkDown) {
         if (running.compareAndSet(true, false)) {
             tunnel.wakeup()
+            rxPending.offer(rxEndSentinel)
+            rxFree.offer(rxEndSentinel)
             try {
                 listener.onLinkDown(reason)
             } catch (e: RuntimeException) {
@@ -376,5 +542,10 @@ class NcmDataPath(
 
         /** 收方向线程自己发出的帧（ARP 应答）的上限。 */
         private const val MAX_REPLY_FRAME = Ethernet.HEADER_LENGTH + Arp.LENGTH
+        private const val RX_POOL_SIZE = 4
+        private const val MAX_TX_BATCH = 8
+        private const val MIN_BATCH_BLOCK_BYTES = 2048
+        private const val MIN_COALESCE_PACKET_ROOM = 1500
+        private const val BLOCK_TAIL_MARGIN = 5
     }
 }

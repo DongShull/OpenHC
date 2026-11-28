@@ -232,6 +232,10 @@ class WiredSession(
         timeout(config.timeouts.phoneSwitchHintMs) { setState(WiredState.WaitingForPhoneSwitch(slow = true)) }
         timeout(config.timeouts.phoneSwitchMs) { end(WiredEndReason.PHONE_DID_NOT_SWITCH) }
         scanDevices()
+        if (phase == Phase.WAIT_NCM) {
+            handler?.removeCallbacks(poll)
+            handler?.postDelayed(poll, FAST_POLL_INTERVAL_MS)
+        }
     }
 
     private fun onNcmDevice(device: UsbDevice) {
@@ -396,7 +400,9 @@ class WiredSession(
         override fun run() {
             if (phase == Phase.ENDED) return
             scanDevices()
-            handler?.postDelayed(this, POLL_INTERVAL_MS)
+            if (phase == Phase.ENDED) return
+            val delay = if (phase == Phase.WAIT_NCM) FAST_POLL_INTERVAL_MS else POLL_INTERVAL_MS
+            handler?.postDelayed(this, delay)
         }
     }
 
@@ -502,6 +508,7 @@ class WiredSession(
     private companion object {
         const val TAG = "OpenHC-Wired"
         const val POLL_INTERVAL_MS = 1000L
+        const val FAST_POLL_INTERVAL_MS = 200L
         const val GRACE_POLL_MS = 50L
         const val CAR_INFO_ATTEMPTS = 3
         const val CAR_INFO_RETRY_DELAY_MS = 300L

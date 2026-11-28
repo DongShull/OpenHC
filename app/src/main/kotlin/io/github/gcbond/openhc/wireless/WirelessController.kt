@@ -29,6 +29,7 @@ import io.github.gcbond.openhc.core.hisight.AccessUnitSink
 import io.github.gcbond.openhc.core.hisight.HiSightInput
 import io.github.gcbond.openhc.core.nearby.BleAdvertisement
 import io.github.gcbond.openhc.core.session.SessionEvent
+import io.github.gcbond.openhc.core.session.SessionOutput
 import io.github.gcbond.openhc.core.session.SocketRunner
 import io.github.gcbond.openhc.core.session.VideoParameters
 import io.github.gcbond.openhc.core.session.WirelessEndReason
@@ -37,6 +38,7 @@ import io.github.gcbond.openhc.core.session.WirelessReceiverConfig
 import io.github.gcbond.openhc.core.session.WirelessReceiverSession
 import io.github.gcbond.openhc.core.session.WirelessRunnerBridge
 import io.github.gcbond.openhc.input.MediaKeys
+import io.github.gcbond.openhc.input.TouchInputCoalescer
 import io.github.gcbond.openhc.platform.bluetooth.BleBeacon
 import io.github.gcbond.openhc.platform.bluetooth.BluetoothStatus
 import io.github.gcbond.openhc.platform.bluetooth.RfcommClient
@@ -415,21 +417,40 @@ class WirelessController(
         begin(Kind.MANUAL)
     }
 
-    /** 投屏视图换算好的触摸（主线程）。回控就绪前不发；发送在协议线程上做，异常就地接住。 */
+    /** 投屏视图换算好的触摸（主线程）。回控就绪前不发；高频同指 MOVE 经 [TouchInputCoalescer] 合并，发送在协议线程上做。 */
     fun sendInput(input: HiSightInput) {
         val current = inputTarget ?: return
         if (!current.inputReady) return
+        if (!current.touchCoalescer.offer(input)) return
         current.runner.submit {
-            try {
-                current.bridge.sendInput(input)
-            } catch (e: IllegalStateException) {
-                Log.d(TAG, "触摸状态对不上，清掉重来：${e.message}")
-                mutableTouchResets.update { it + 1 }
-                emptyList()
-            } catch (e: IllegalArgumentException) {
-                Log.w(TAG, "触摸不合法，丢弃：${e.message}")
-                emptyList()
+            var batch: MutableList<SessionOutput>? = null
+            var single: List<SessionOutput>? = null
+            current.touchCoalescer.drain { item ->
+                val outputs = try {
+                    current.bridge.sendInput(item)
+                } catch (e: IllegalStateException) {
+                    Log.d(TAG, "触摸状态对不上，清掉重来：${e.message}")
+                    mutableTouchResets.update { it + 1 }
+                    emptyList()
+                } catch (e: IllegalArgumentException) {
+                    Log.w(TAG, "触摸不合法，丢弃：${e.message}")
+                    emptyList()
+                }
+                if (outputs.isNotEmpty()) {
+                    if (batch != null) {
+                        batch!!.addAll(outputs)
+                    } else if (single == null) {
+                        single = outputs
+                    } else {
+                        batch = ArrayList<SessionOutput>(single!!.size + outputs.size).apply {
+                            addAll(single!!)
+                            addAll(outputs)
+                        }
+                        single = null
+                    }
+                }
             }
+            batch ?: single ?: emptyList()
         }
     }
 
@@ -1096,6 +1117,7 @@ class WirelessController(
 
         @Volatile
         var inputReady = false
+        val touchCoalescer = TouchInputCoalescer()
 
         init {
             results.runner = runner

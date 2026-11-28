@@ -1076,4 +1076,33 @@ class WirelessReceiverSessionTest {
         assertFailsWith<IllegalArgumentException> { Driver().session.startWithDial("不是地址", "Phone", 0L) }
         assertFailsWith<IllegalArgumentException> { Driver().session.startWithDial(WirelessSynthetic.PHONE_BLUETOOTH, " ", 0L) }
     }
+
+    @Test
+    fun reconnectTimesOutWhenBluetoothConnectHangs() {
+        val d = Driver()
+        d.startReconnect()
+        val deadline = d.now + d.config.timeouts.dialConnectMillis
+        assertEquals(deadline, d.session.nextTickAtMillis)
+        assertTrue(d.tick(deadline - 1).isEmpty())
+        d.tick(deadline)
+        val reason = assertIs<WirelessEndReason.ReconnectFailed>(d.ended())
+        assertTrue(reason.detail.contains("超时"), reason.detail)
+        assertTrue("rfcomm-close BLUETOOTH_CONTROL" in d.outputs.map { d.describe(it) })
+    }
+
+    @Test
+    fun startWithDialTimesOutDialAndKeepsScanAlive() {
+        val d = Driver()
+        d.startWithDial()
+        d.btListening(WirelessChannel.BLUETOOTH_CONTROL, 0)
+        val deadline = d.now + d.config.timeouts.dialConnectMillis
+        assertEquals(deadline, d.session.nextTickAtMillis)
+        assertEquals(listOf("rfcomm-close BLUETOOTH_CONTROL", "diag"), d.tick(deadline))
+        assertTrue(d.outputs.none { it is WirelessEvent.Ended }, "拨号超时不应终止扫码等待")
+        assertNull(d.session.nextTickAtMillis)
+        assertEquals(
+            listOf("event PhoneBluetoothConnected(地址不显示)", "rfcomm-write BLUETOOTH_CONTROL bt-connect-id"),
+            d.btAccepted(WirelessChannel.BLUETOOTH_CONTROL),
+        )
+    }
 }

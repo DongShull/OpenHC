@@ -22,6 +22,7 @@ import java.util.concurrent.Executor
 internal class HotspotInfoWatcher(
     private val wifi: WifiManager,
     private val executor: Executor,
+    private val onUpdated: () -> Unit = {},
     private val log: (String) -> Unit,
 ) {
     /** 系统回报的实际频率（MHz），还没回报为 0。 */
@@ -38,6 +39,15 @@ internal class HotspotInfoWatcher(
     @Volatile
     var registered: Boolean = false
         private set
+
+    /** 已经等满一次超时仍未收到任何回报：同进程后续连接不再白等。 */
+    @Volatile
+    var timedOut: Boolean = false
+        private set
+
+    fun markTimedOut() {
+        timedOut = true
+    }
 
     private var callback: Any? = null
     private var callbackClass: Class<*>? = null
@@ -113,12 +123,16 @@ internal class HotspotInfoWatcher(
         if (info == null) return
         val frequency = frequencyOf(info)
         val reported = bssidOf(info)
-        if (frequency > 0) frequencyMhz = frequency
+        if (frequency > 0) {
+            frequencyMhz = frequency
+            timedOut = false
+        }
         if (reported != null) bssid = reported
         log(
             "系统回报热点信息：频率 ${if (frequency > 0) "$frequency MHz" else "没给"}，" +
                 "BSSID ${if (reported != null) MacText.mask(MacText.normalize(reported) ?: reported) else "没给"}",
         )
+        if (frequency > 0 || reported != null) onUpdated()
     }
 
     private fun frequencyOf(info: Any?): Int = try {

@@ -124,11 +124,14 @@ class WirelessTimeouts(
     val reconnectAnswerMillis: Long = 20_000,
     /** 车机主动回连：手机暂时拒绝之后，控制通道留着等手机上的确认（原厂车机拨通后也是等 120 秒）。 */
     val reconnectConfirmMillis: Long = 120_000,
+    /** 车机主动拨手机蓝牙控制服务（RFCOMM connect）的超时，防止个别车机蓝牙栈永久阻塞。 */
+    val dialConnectMillis: Long = 8_000,
 ) {
     init {
         require(
             authChannelAcceptMillis > 0 && authMillis > 0 && networkStartMillis > 0 && phoneJoinMillis > 0 &&
-                reconnectAuthConnectMillis > 0 && reconnectAnswerMillis > 0 && reconnectConfirmMillis > 0,
+                reconnectAuthConnectMillis > 0 && reconnectAnswerMillis > 0 && reconnectConfirmMillis > 0 &&
+                dialConnectMillis > 0,
         ) {
             "超时必须为正"
         }

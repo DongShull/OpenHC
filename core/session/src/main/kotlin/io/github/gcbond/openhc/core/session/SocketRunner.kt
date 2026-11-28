@@ -200,7 +200,7 @@ class SocketRunner(
         size: Int,
     ) : Resource(id) {
         val pool = BufferPool(buffers, size)
-        private val writeQueue = ArrayBlockingQueue<WriteItem>(MAX_QUEUED_WRITES)
+        private val writeQueue = ArrayBlockingQueue<WriteItem>(writeQueueCapacityFor(channel))
         private val writerStarted = AtomicBoolean(false)
 
         fun enqueueWrite(bytes: ByteArray): Boolean {
@@ -501,6 +501,13 @@ class SocketRunner(
         val server = ServerSocket()
         try {
             server.reuseAddress = true
+            if (isDefaultBuffering() && (action.channel == SessionChannel.AUDIO || action.channel == SessionChannel.DMSDP_CONTROL)) {
+                try {
+                    server.receiveBufferSize = AUDIO_TCP_RCVBUF_BYTES
+                } catch (_: IOException) {
+                    // 个别平台不支持设接收缓冲时照常监听。
+                }
+            }
             server.bind(InetSocketAddress(InetAddress.getByName(action.host), action.port), options.listenBacklog)
         } catch (e: IOException) {
             closeQuietly(server)
@@ -576,6 +583,7 @@ class SocketRunner(
         try {
             socket = DatagramSocket(InetSocketAddress(InetAddress.getByName(action.localHost), 0))
             applyDatagramQos(socket, action.channel)
+            applyDatagramReceiveBuffer(socket, action.channel)
             socket.connect(InetSocketAddress(InetAddress.getByName(action.remoteHost), action.remotePort))
         } catch (e: IOException) {
             socket?.let { closeQuietly(it) }
@@ -583,7 +591,7 @@ class SocketRunner(
             immediate.add { session.onIoError(action.id, message, now()) }
             return
         }
-        val udp = UdpResource(action.id, action.channel, socket, buffersFor(action.channel), udpBufferSizeFor(action.channel))
+        val udp = UdpResource(action.id, action.channel, socket, udpBuffersFor(action.channel), udpBufferSizeFor(action.channel))
         val thread = newThread(action.channel, action.id) { udpLoop(udp) }
         if (!register(udp, thread)) {
             closeQuietly(socket)
@@ -597,12 +605,13 @@ class SocketRunner(
         try {
             socket = DatagramSocket(InetSocketAddress(InetAddress.getByName(action.localHost), action.localPort))
             applyDatagramQos(socket, action.channel)
+            applyDatagramReceiveBuffer(socket, action.channel)
         } catch (e: IOException) {
             val message = "绑 UDP（${action.localHost}:${action.localPort}）失败：${describe(e)}"
             immediate.add { session.onIoError(action.id, message, now()) }
             return
         }
-        val udp = UdpResource(action.id, action.channel, socket, buffersFor(action.channel), udpBufferSizeFor(action.channel))
+        val udp = UdpResource(action.id, action.channel, socket, udpBuffersFor(action.channel), udpBufferSizeFor(action.channel))
         val thread = newThread(action.channel, action.id) { udpLoop(udp) }
         if (!register(udp, thread)) {
             closeQuietly(socket)
@@ -810,11 +819,34 @@ class SocketRunner(
         }
     }
 
+    private fun udpBuffersFor(channel: SessionChannel): Int {
+        if (!isDefaultBuffering()) return options.buffersPerConnection
+        return when (channel) {
+            SessionChannel.AUDIO -> 16
+            else -> buffersFor(channel)
+        }
+    }
+
     private fun udpBufferSizeFor(channel: SessionChannel): Int {
         if (!isDefaultBuffering()) return options.readBufferBytes
         return when (channel) {
             SessionChannel.KEEPALIVE -> 1024
+            SessionChannel.AUDIO -> 16 * 1024
             else -> DEFAULT_READ_BUFFER_BYTES
+        }
+    }
+
+    private fun writeQueueCapacityFor(channel: SessionChannel): Int = when (channel) {
+        SessionChannel.REMOTE_CONTROL -> REMOTE_CONTROL_QUEUED_WRITES
+        else -> MAX_QUEUED_WRITES
+    }
+
+    private fun applyDatagramReceiveBuffer(socket: DatagramSocket, channel: SessionChannel) {
+        if (!isDefaultBuffering() || channel != SessionChannel.AUDIO) return
+        try {
+            socket.receiveBufferSize = AUDIO_UDP_RCVBUF_BYTES
+        } catch (_: IOException) {
+            // 个别平台不支持设接收缓冲时照常使用默认大小。
         }
     }
 
@@ -877,6 +909,15 @@ class SocketRunner(
             "${options.threadName}-${channel.name.lowercase()}-$id",
         )
         thread.isDaemon = true
+        when (channel) {
+            SessionChannel.AUDIO,
+            SessionChannel.REMOTE_CONTROL,
+            SessionChannel.KEEPALIVE,
+            SessionChannel.DMSDP_CONTROL,
+            SessionChannel.VIDEO,
+            -> thread.priority = Thread.MAX_PRIORITY
+            else -> Unit
+        }
         return thread
     }
 
@@ -884,7 +925,10 @@ class SocketRunner(
         const val DEFAULT_READ_BUFFER_BYTES = 64 * 1024
         const val DEFAULT_BUFFERS_PER_CONN = 2
         const val VIDEO_SOCKET_RCVBUF_BYTES = 512 * 1024
+        const val AUDIO_TCP_RCVBUF_BYTES = 256 * 1024
+        const val AUDIO_UDP_RCVBUF_BYTES = 512 * 1024
         const val MAX_QUEUED_WRITES = 128
+        const val REMOTE_CONTROL_QUEUED_WRITES = 256
         const val WRITE_COALESCE_BYTES = 8 * 1024
         const val MAX_DRAIN_BURST = 16
         const val TOS_VOICE_EXPEDITED = 0xB8

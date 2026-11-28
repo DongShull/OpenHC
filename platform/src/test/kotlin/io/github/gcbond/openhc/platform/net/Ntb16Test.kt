@@ -233,4 +233,38 @@ class Ntb16Test {
         assertFailsWith<IllegalArgumentException> { Ntb16.frameInPlace(ByteArray(100), layout, 13, 0, 512) }
         assertFailsWith<IllegalArgumentException> { Ntb16.frameInPlace(ByteArray(80), layout, 60, 0, 512) }
     }
+
+    @Test
+    fun frameBatchInPlacePacksMultipleDatagramsAndParsesCleanly() {
+        val custom = NtbOutLayout.of(divisor = 8, remainder = 2, alignment = 16)
+        val first = pattern(42, start = 0x10)
+        val second = pattern(73, start = 0x50)
+        val third = pattern(120, start = 0x90)
+        val buffer = ByteArray(1024) { 0x7F }
+        val off0 = custom.firstDatagramOffset(maxDatagrams = 4)
+        System.arraycopy(first, 0, buffer, off0, first.size)
+        val off1 = custom.alignDatagram(off0 + maxOf(first.size, Ntb16.MIN_DATAGRAM_LENGTH))
+        System.arraycopy(second, 0, buffer, off1, second.size)
+        val off2 = custom.alignDatagram(off1 + maxOf(second.size, Ntb16.MIN_DATAGRAM_LENGTH))
+        System.arraycopy(third, 0, buffer, off2, third.size)
+
+        val block = Ntb16.frameBatchInPlace(
+            buffer = buffer,
+            layout = custom,
+            offsets = intArrayOf(off0, off1, off2),
+            lengths = intArrayOf(first.size, second.size, third.size),
+            count = 3,
+            sequence = 0x22,
+            zlpPacketSize = 512,
+        )
+        assertEquals(0x22, buffer.u16le(6))
+        assertEquals(block, buffer.u16le(8))
+        val parsed = unpack(buffer, 0, block)
+        assertEquals(3, parsed.size)
+        assertEquals(60, parsed[0].size, "短于 60 字节的帧补零到 60 字节")
+        assertContentEquals(first, parsed[0].copyOf(first.size))
+        assertTrue(isAllZero(parsed[0], first.size, 60 - first.size))
+        assertContentEquals(second, parsed[1])
+        assertContentEquals(third, parsed[2])
+    }
 }

@@ -17,6 +17,8 @@ internal object DecoderCatalog {
         val sizeSupported: Boolean,
         /** 支持安卓标准的低延迟模式（安卓 11 起）。 */
         val lowLatency: Boolean,
+        /** 解码器声明的最高工作帧率（用于 KEY_OPERATING_RATE 上限），未知为 0。 */
+        val maxOperatingRate: Int = 0,
     )
 
     private class Entry(val info: MediaCodecInfo, val capabilities: MediaCodecInfo.CodecCapabilities)
@@ -54,12 +56,18 @@ internal object DecoderCatalog {
             } catch (e: RuntimeException) {
                 false
             }
+            val maxOperatingRate = try {
+                entry.capabilities.videoCapabilities?.supportedFrameRates?.upper ?: 0
+            } catch (e: RuntimeException) {
+                0
+            }
             Candidate(
                 name = entry.info.name,
                 hardware = isHardware(entry.info),
                 sizeSupported = sizeSupported,
                 lowLatency = Build.VERSION.SDK_INT >= Build.VERSION_CODES.R &&
                     entry.capabilities.isFeatureSupported(MediaCodecInfo.CodecCapabilities.FEATURE_LowLatency),
+                maxOperatingRate = maxOperatingRate,
             )
         }
         .sortedWith(compareByDescending<Candidate> { it.sizeSupported }.thenByDescending { it.hardware })

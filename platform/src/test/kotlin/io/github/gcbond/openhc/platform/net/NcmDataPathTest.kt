@@ -18,7 +18,10 @@ import kotlin.test.assertTrue
 class NcmDataPathTest {
 
     /** 假的 USB 端：收到的块从队列里取，发出的块记下来。 */
-    private class FakePort(override val maxOutBlockLength: Int = 3568) : NtbPort {
+    private class FakePort(
+        override val maxOutBlockLength: Int = 3568,
+        override val maxOutDatagrams: Int = 1,
+    ) : NtbPort {
         override val receiveSize = 16384
         override val outLayout = NtbOutLayout.DEFAULT
         override val zlpPacketSize = 512
@@ -64,6 +67,13 @@ class NcmDataPathTest {
                 return packet.size
             }
             return -1
+        }
+
+        override fun tryRead(buffer: ByteArray, offset: Int, maxLength: Int): Int {
+            if (woken || closedByPeer) return -1
+            val packet = toRead.poll() ?: return 0
+            System.arraycopy(packet, 0, buffer, offset, packet.size)
+            return packet.size
         }
 
         override fun write(buffer: ByteArray, offset: Int, length: Int): Boolean {
@@ -252,6 +262,40 @@ class NcmDataPathTest {
     fun startsOnlyOnce() {
         path.start()
         assertFailsWith<IllegalStateException> { path.start() }
+    }
+
+    @Test
+    fun batchesMultipleReadyPacketsIntoSingleNtb() {
+        val batchPort = FakePort(maxOutBlockLength = 3568, maxOutDatagrams = 4)
+        path = NcmDataPath(batchPort, tunnel, EthernetEndpoint(CAR_IP), events, timing)
+        path.start()
+
+        // 先让对端通过 ARP 学会手机 MAC。
+        batchPort.incoming.add(ntbOf(TestFrames.arpRequest(PHONE_MAC, PHONE_IP, CAR_IP)))
+        batchPort.sent.next()
+
+        // 连续入队 3 个包，合并发送应将多个就绪包打进同一块 NTB16。
+        val p1 = TestFrames.tcpSyn(CAR_IP, PHONE_IP, 30001, 40001)
+        val p2 = TestFrames.tcpSyn(CAR_IP, PHONE_IP, 30002, 40002)
+        val p3 = TestFrames.tcpSyn(CAR_IP, PHONE_IP, 30003, 40003)
+        tunnel.toRead.addAll(listOf(p1, p2, p3))
+
+        val received = ArrayList<ByteArray>()
+        var ntbs = 0
+        val deadline = System.nanoTime() + TimeUnit.SECONDS.toNanos(2)
+        while (received.size < 3 && System.nanoTime() < deadline) {
+            val block = batchPort.sent.poll(200, TimeUnit.MILLISECONDS) ?: continue
+            ntbs++
+            for (frame in datagramsOf(block)) {
+                received.add(frame.copyOfRange(14, 14 + p1.size))
+            }
+        }
+        assertEquals(3, received.size)
+        assertContentEquals(p1, received[0])
+        assertContentEquals(p2, received[1])
+        assertContentEquals(p3, received[2])
+        assertTrue(ntbs <= 3)
+        assertEquals(3L, path.stats().packetsToPhone)
     }
 
     private fun waitUntil(condition: () -> Boolean) {

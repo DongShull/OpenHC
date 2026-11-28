@@ -67,6 +67,17 @@ internal class TunInterface(private val descriptor: ParcelFileDescriptor) : Pack
 
     override fun read(buffer: ByteArray, offset: Int, maxLength: Int): Int {
         while (!woken) {
+            // 先直接非阻塞读一次：活跃流量下包已经在内核队列里，省掉一次额外的 Os.poll 系统调用。
+            try {
+                val n = Os.read(fd, buffer, offset, maxLength)
+                // TUN 正常不会读出 0 字节；读出 0 说明网卡已经没了。
+                return if (n > 0) n else -1
+            } catch (e: ErrnoException) {
+                if (e.errno == OsConstants.EINTR) continue
+                if (e.errno != OsConstants.EAGAIN) return -1
+            } catch (e: InterruptedIOException) {
+                return -1
+            }
             tunReadPoll.revents = 0
             wakeReadPoll.revents = 0
             val ready = try {
@@ -79,19 +90,24 @@ internal class TunInterface(private val descriptor: ParcelFileDescriptor) : Pack
             if (woken || wakeReadPoll.revents.toInt() != 0) return -1
             if (ready <= 0) continue
             val events = tunReadPoll.revents.toInt()
-            if (events and OsConstants.POLLIN != 0) {
-                try {
-                    val n = Os.read(fd, buffer, offset, maxLength)
-                    // TUN 正常不会读出 0 字节；读出 0 说明网卡已经没了。
-                    return if (n > 0) n else -1
-                } catch (e: ErrnoException) {
-                    if (e.errno == OsConstants.EAGAIN || e.errno == OsConstants.EINTR) continue
-                    return -1
-                } catch (e: InterruptedIOException) {
-                    return -1
-                }
-            }
+            if (events and OsConstants.POLLIN != 0) continue
             if (events and (OsConstants.POLLERR or OsConstants.POLLHUP or OsConstants.POLLNVAL) != 0) return -1
+        }
+        return -1
+    }
+
+    override fun tryRead(buffer: ByteArray, offset: Int, maxLength: Int): Int {
+        if (woken) return -1
+        while (!woken) {
+            try {
+                val n = Os.read(fd, buffer, offset, maxLength)
+                return if (n > 0) n else -1
+            } catch (e: ErrnoException) {
+                if (e.errno == OsConstants.EINTR) continue
+                return if (e.errno == OsConstants.EAGAIN) 0 else -1
+            } catch (e: InterruptedIOException) {
+                return -1
+            }
         }
         return -1
     }

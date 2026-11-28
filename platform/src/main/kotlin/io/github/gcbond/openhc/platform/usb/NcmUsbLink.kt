@@ -30,6 +30,7 @@ internal class NcmUsbLink private constructor(
     override val outLayout: NtbOutLayout,
     override val maxOutBlockLength: Int,
     override val zlpPacketSize: Int,
+    override val maxOutDatagrams: Int,
     /** 手机报的 NTB 参数；取不到时为 null（用了默认值）。 */
     val parameters: NtbParameters?,
 ) : NtbPort, Closeable {
@@ -72,6 +73,8 @@ internal class NcmUsbLink private constructor(
         private const val CONTROL_TIMEOUT_MS = 1000
         private const val NOTIFICATION_TIMEOUT_MS = 300
         private const val DEFAULT_ZLP_PACKET_SIZE = 512
+        /** 单块出向 NTB 最多打包的数据报数上限（NCM 规范中 0 表示不限，这里封顶在 8 保持 NDP16 头紧凑）。 */
+        private const val MAX_OUT_DATAGRAMS = 8
 
         /**
          * 打开切成 USB 网卡的手机：强占控制口和数据口 → 读 NTB 参数 → 数据口切到备用 0（NCM 功能复位）→
@@ -127,14 +130,19 @@ internal class NcmUsbLink private constructor(
                     ?.coerceIn(CdcNcm.MIN_NTB_SIZE.toLong(), 0xFFFFL)
                     ?.toInt()
                     ?: CdcNcm.MIN_NTB_SIZE
+                val maxOutDatagrams = when {
+                    parameters == null -> 1
+                    parameters.outMaxDatagrams == 0 -> MAX_OUT_DATAGRAMS
+                    else -> parameters.outMaxDatagrams.coerceIn(1, MAX_OUT_DATAGRAMS)
+                }
                 val zlp = bulkOut.maxPacketSize.takeIf { it > 0 } ?: DEFAULT_ZLP_PACKET_SIZE
                 log(
-                    "USB 网卡就绪：每次接收 ${plan.receiveSize} 字节，出向上限 $maxOut 字节，$layout，" +
+                    "USB 网卡就绪：每次接收 ${plan.receiveSize} 字节，出向上限 $maxOut 字节（最多 $maxOutDatagrams 帧/块），$layout，" +
                         "端点包长 IN ${bulkIn.maxPacketSize} / OUT ${bulkOut.maxPacketSize}",
                 )
                 return NcmUsbLink(
                     connection, control, dataActive, bulkIn, bulkOut,
-                    plan.receiveSize, layout, maxOut, zlp, parameters,
+                    plan.receiveSize, layout, maxOut, zlp, maxOutDatagrams, parameters,
                 )
             } catch (e: IOException) {
                 closeQuietly(connection, control, dataActive)

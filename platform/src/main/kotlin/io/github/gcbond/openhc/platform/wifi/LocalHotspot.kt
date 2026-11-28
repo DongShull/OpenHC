@@ -86,7 +86,7 @@ class LocalHotspotOwner private constructor(context: Context) {
     /** 安卓 13 起尝试读系统回报的热点实际频率和 BSSID（读不到就推测）；回报在工作线程上交付。 */
     private val infoWatcher: HotspotInfoWatcher? = wifi
         ?.takeIf { Build.VERSION.SDK_INT >= Build.VERSION_CODES.TIRAMISU }
-        ?.let { manager -> HotspotInfoWatcher(manager, { handler.post(it) }) { note(it) } }
+        ?.let { manager -> HotspotInfoWatcher(manager, { handler.post(it) }, { onHotspotInfoUpdated() }) { note(it) } }
 
     // ---------------------------------------------------------------- 以下只在工作线程上访问
 
@@ -226,6 +226,13 @@ class LocalHotspotOwner private constructor(context: Context) {
             pollAddress()
         }
 
+        fun onInfoUpdated() {
+            if (!stopped && stage == Stage.WAITING_ADDRESS) {
+                handler.removeCallbacks(poll)
+                pollAddress()
+            }
+        }
+
         private fun pollAddress() {
             if (stopped || stage != Stage.WAITING_ADDRESS) return
             // 车机自己的 WiFi 还开着（能一边连 WiFi 一边开热点）时，「只有一个 wlan 地址就用它」的兜底推迟一会儿再用，
@@ -233,8 +240,16 @@ class LocalHotspotOwner private constructor(context: Context) {
             val wlanFallback = !stationEnabled() || now() >= wlanFallbackAt
             val picked = LocalHotspotRules.pickInterface(before, snapshot(), stationIpv4(), wlanFallback)
             // 挂上了热点信息回调、回报还没到：再等一会儿（最多 INFO_WAIT_MS），拿到实际频率和 BSSID 再交出去。
-            val waitInfo = infoWatcher?.let { it.registered && it.frequencyMhz == 0 } == true && now() < infoDeadline
-            if (picked != null && !waitInfo) return ready(picked.first, picked.second)
+            val watcher = infoWatcher
+            val waitingWatcher = watcher != null && watcher.registered && !watcher.timedOut && watcher.frequencyMhz == 0
+            val waitInfo = waitingWatcher && now() < infoDeadline
+            if (picked != null && !waitInfo) {
+                if (waitingWatcher) {
+                    watcher.markTimedOut()
+                    log("热点信息回调在 ${INFO_WAIT_MS}ms 内未回报，后续连接不再等待直接按推测")
+                }
+                return ready(picked.first, picked.second)
+            }
             if (picked != null) {
                 handler.postDelayed(poll, ADDRESS_POLL_MS)
                 return
@@ -278,6 +293,10 @@ class LocalHotspotOwner private constructor(context: Context) {
             log(message)
             if (!stopped) events.onLost(message)
         }
+    }
+
+    private fun onHotspotInfoUpdated() {
+        for (run in runs.values.toList()) run.onInfoUpdated()
     }
 
     // ---------------------------------------------------------------- 状态机的输出
