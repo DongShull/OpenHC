@@ -38,6 +38,8 @@ internal object Glyphs {
     val Monitor by lazy { stroke("monitor", "M3 4h18v13H3z M8 21h8 M12 17v4") }
     val Power by lazy { stroke("power", "M12 2v9 M6.3 5.8a8 8 0 1 0 11.4 0") }
     val Speaker by lazy { stroke("speaker", "M11 5L6 9H3v6h3l5 4z M15.5 8.5a5 5 0 0 1 0 7 M18.5 5.5a9 9 0 0 1 0 13") }
+    val SpeakerOff by lazy { stroke("speaker_off", "M11 5L6 9H3v6h3l5 4z M22 9l-6 6 M16 9l6 6") }
+    val AutoLink by lazy { stroke("auto_link", "M20 12a8 8 0 0 1-13.6 5.7 M4 12a8 8 0 0 1 13.6-5.7 M17 3v4h4 M7 21v-4H3") }
     val Wheel by lazy {
         stroke(
             "wheel",

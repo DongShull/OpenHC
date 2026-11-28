@@ -2,19 +2,21 @@ package io.github.gcbond.openhc.ui
 
 import androidx.compose.animation.AnimatedContent
 import androidx.compose.animation.SizeTransform
-import androidx.compose.animation.core.LinearEasing
-import androidx.compose.animation.core.RepeatMode
+import androidx.compose.animation.animateColorAsState
+import androidx.compose.animation.core.Spring
 import androidx.compose.animation.core.animateDpAsState
-import androidx.compose.animation.core.animateFloat
-import androidx.compose.animation.core.infiniteRepeatable
-import androidx.compose.animation.core.rememberInfiniteTransition
+import androidx.compose.animation.core.animateFloatAsState
+import androidx.compose.animation.core.spring
 import androidx.compose.animation.core.tween
 import androidx.compose.animation.fadeIn
 import androidx.compose.animation.fadeOut
 import androidx.compose.animation.togetherWith
+import androidx.compose.foundation.LocalIndication
 import androidx.compose.foundation.background
 import androidx.compose.foundation.border
 import androidx.compose.foundation.clickable
+import androidx.compose.foundation.interaction.MutableInteractionSource
+import androidx.compose.foundation.interaction.collectIsPressedAsState
 import androidx.compose.foundation.layout.Arrangement
 import androidx.compose.foundation.layout.Box
 import androidx.compose.foundation.layout.BoxWithConstraints
@@ -58,16 +60,19 @@ import androidx.compose.ui.Modifier
 import androidx.compose.ui.draw.alpha
 import androidx.compose.ui.draw.clip
 import androidx.compose.ui.draw.drawBehind
+import androidx.compose.ui.draw.drawWithContent
 import androidx.compose.ui.focus.onFocusChanged
 import androidx.compose.ui.geometry.Offset
 import androidx.compose.ui.geometry.Rect
 import androidx.compose.ui.geometry.Size
+import androidx.compose.ui.graphics.Brush
 import androidx.compose.ui.graphics.Color
 import androidx.compose.ui.graphics.Path
 import androidx.compose.ui.graphics.RectangleShape
 import androidx.compose.ui.graphics.Shape
-import androidx.compose.ui.graphics.drawscope.Stroke
+import androidx.compose.ui.graphics.graphicsLayer
 import androidx.compose.ui.graphics.vector.ImageVector
+import androidx.compose.ui.layout.Layout
 import androidx.compose.ui.layout.layout
 import androidx.compose.ui.layout.onSizeChanged
 import androidx.compose.ui.platform.LocalDensity
@@ -80,6 +85,7 @@ import androidx.compose.ui.text.TextStyle
 import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.ui.text.style.TextAlign
 import androidx.compose.ui.text.style.TextOverflow
+import androidx.compose.ui.unit.Constraints
 import androidx.compose.ui.unit.Dp
 import androidx.compose.ui.unit.IntOffset
 import androidx.compose.ui.unit.IntSize
@@ -90,6 +96,7 @@ import androidx.compose.ui.window.Dialog
 import androidx.compose.ui.window.DialogProperties
 import io.github.gcbond.openhc.R
 import kotlinx.coroutines.delay
+import kotlin.math.roundToInt
 
 // 首页和设置页共用的控件。全部自己画（不用系统开关、单选框），深浅两套配色下样子才可控。
 
@@ -103,6 +110,44 @@ internal fun Modifier.dpadFocusRing(shape: Shape = RectangleShape): Modifier {
     return this
         .onFocusChanged { focused = it.isFocused }
         .then(if (focused) Modifier.border(2.5.dp, Palette.FocusRing, shape) else Modifier)
+}
+
+/** 卡片顶部 0.5dp 极细微光高光边，为深浅两套材质提供克制的物理厚度感。 */
+internal fun Modifier.topEdgeSheen(cornerRadius: Dp): Modifier = drawWithContent {
+    drawContent()
+    val inset = cornerRadius.toPx().coerceAtMost(size.width * 0.4f)
+    if (size.width > inset * 2f) {
+        val y = 0.5.dp.toPx()
+        drawLine(
+            brush = Brush.horizontalGradient(
+                colors = listOf(Color.Transparent, Palette.CardSheen, Color.Transparent),
+                startX = inset,
+                endX = size.width - inset,
+            ),
+            start = Offset(inset, y),
+            end = Offset(size.width - inset, y),
+            strokeWidth = 0.5.dp.toPx(),
+        )
+    }
+}
+
+/** 克制的按压微缩物理反馈：放在 clip / border / dpadFocusRing 之前，保证描边与焦点框同步缩放。 */
+@Composable
+internal fun Modifier.pressScale(
+    interactionSource: MutableInteractionSource,
+    enabled: Boolean = true,
+    pressedScale: Float = 0.965f,
+): Modifier {
+    val pressed by interactionSource.collectIsPressedAsState()
+    val scale by animateFloatAsState(
+        targetValue = if (enabled && pressed) pressedScale else 1f,
+        animationSpec = spring(dampingRatio = Spring.DampingRatioNoBouncy, stiffness = Spring.StiffnessMediumLow),
+        label = "press_scale",
+    )
+    return graphicsLayer {
+        scaleX = scale
+        scaleY = scale
+    }
 }
 
 // ------------------------------------------------------------------ 页面骨架
@@ -141,18 +186,25 @@ internal fun AppMark(modifier: Modifier = Modifier) {
     }
 }
 
-/** 顶栏的「设置」「返回」：简洁圆角胶囊按钮。 */
+/** 顶栏的「设置」「返回」：简洁圆角胶囊按钮，带按压微缩反馈。 */
 @Composable
 internal fun TopBarButton(text: String, onClick: () -> Unit, modifier: Modifier = Modifier, glyph: ImageVector? = null) {
     val compact = LocalCompact.current
     val shape = RoundedCornerShape(percent = 50)
+    val interactionSource = remember { MutableInteractionSource() }
     Row(
         modifier
             .heightIn(min = if (compact) 40.dp else 44.dp)
+            .pressScale(interactionSource, pressedScale = 0.96f)
             .clip(shape)
             .background(Palette.Button)
             .dpadFocusRing(shape)
-            .clickable(role = Role.Button, onClick = onClick)
+            .clickable(
+                interactionSource = interactionSource,
+                indication = LocalIndication.current,
+                role = Role.Button,
+                onClick = onClick,
+            )
             .padding(start = if (glyph != null) 14.dp else 18.dp, end = 18.dp),
         verticalAlignment = Alignment.CenterVertically,
         horizontalArrangement = Arrangement.spacedBy(8.dp),
@@ -191,7 +243,7 @@ internal fun TopBar(
     }
 }
 
-/** 圆角卡片：干净的极简平面面板，仅留极轻弱的 1dp 发丝边。 */
+/** 圆角卡片：干净的极简平面面板，保留 1dp 发丝边与 0.5dp 顶部微光高光。 */
 @Composable
 internal fun CardBox(
     modifier: Modifier = Modifier,
@@ -206,6 +258,7 @@ internal fun CardBox(
         modifier
             .clip(shape)
             .background(color)
+            .topEdgeSheen(radius)
             .border(1.dp, border, shape)
             .padding(contentPadding),
         content = content,
@@ -274,63 +327,6 @@ internal fun IconTile(
         contentAlignment = Alignment.Center,
     ) {
         Icon(glyph, contentDescription = null, tint = tint, modifier = Modifier.size(tile * 0.5f))
-    }
-}
-
-/** 连接中使用的轻量脉冲图标：仅在 [pulsing] 为真时运行低开销同心圆扩散动效，投屏/空闲时完全静止。 */
-@Composable
-internal fun PulseIconTile(
-    glyph: ImageVector,
-    pulsing: Boolean,
-    tone: BadgeTone = BadgeTone.ACCENT,
-    modifier: Modifier = Modifier,
-) {
-    val compact = LocalCompact.current
-    val (tint, bg) = when (tone) {
-        BadgeTone.POSITIVE -> Palette.Positive to Palette.PositiveBackground
-        BadgeTone.WARN -> Palette.Warn to Palette.WarnBackground
-        BadgeTone.NEUTRAL -> Palette.Text2 to Palette.Button
-        BadgeTone.ACCENT -> Palette.Accent to Palette.Tint
-    }
-    val ringSize = if (compact) 82.dp else 102.dp
-    val progress = if (pulsing) {
-        val transition = rememberInfiniteTransition(label = "connect_pulse")
-        transition.animateFloat(
-            initialValue = 0f,
-            targetValue = 1f,
-            animationSpec = infiniteRepeatable(
-                animation = tween(durationMillis = 1900, easing = LinearEasing),
-                repeatMode = RepeatMode.Restart,
-            ),
-            label = "pulse_ring",
-        ).value
-    } else {
-        0f
-    }
-    Box(
-        modifier
-            .size(ringSize)
-            .drawBehind {
-                if (!pulsing) return@drawBehind
-                val cx = size.width / 2f
-                val cy = size.height / 2f
-                val minR = size.minDimension * 0.34f
-                val maxR = size.minDimension * 0.5f
-                for (wave in 0..1) {
-                    val p = (progress + wave * 0.5f) % 1f
-                    val r = minR + (maxR - minR) * p
-                    val alpha = (1f - p) * 0.36f
-                    drawCircle(
-                        color = tint.copy(alpha = alpha),
-                        radius = r,
-                        center = Offset(cx, cy),
-                        style = Stroke(width = 1.5.dp.toPx()),
-                    )
-                }
-            },
-        contentAlignment = Alignment.Center,
-    ) {
-        IconTile(glyph, large = true, tint = tint, background = bg)
     }
 }
 
@@ -438,7 +434,7 @@ internal fun WarnBanner(text: String, modifier: Modifier = Modifier, action: Str
 
 // ------------------------------------------------------------------ 按钮
 
-/** 大胶囊按钮：主操作采用纯色品牌蓝，次要操作采用哑光中性按钮底。 */
+/** 大胶囊按钮：主操作采用纯色品牌蓝，次要操作采用哑光中性按钮底，带按压微缩反馈。 */
 @Composable
 internal fun PillButton(
     text: String,
@@ -451,15 +447,23 @@ internal fun PillButton(
 ) {
     val compact = LocalCompact.current
     val shape = RoundedCornerShape(percent = 50)
+    val interactionSource = remember { MutableInteractionSource() }
     Row(
         modifier
             .widthIn(min = if (wide) (if (compact) 220.dp else 272.dp) else if (compact) 132.dp else 160.dp)
             .heightIn(min = if (compact) 46.dp else 52.dp)
             .alpha(if (enabled) 1f else DISABLED_ALPHA)
+            .pressScale(interactionSource, enabled = enabled, pressedScale = 0.965f)
             .clip(shape)
             .background(if (primary) Palette.On else Palette.Button)
             .dpadFocusRing(shape)
-            .clickable(enabled = enabled, role = Role.Button, onClick = onClick)
+            .clickable(
+                interactionSource = interactionSource,
+                indication = LocalIndication.current,
+                enabled = enabled,
+                role = Role.Button,
+                onClick = onClick,
+            )
             .padding(horizontal = 24.dp, vertical = 6.dp),
         verticalAlignment = Alignment.CenterVertically,
         horizontalArrangement = Arrangement.spacedBy(8.dp, Alignment.CenterHorizontally),
@@ -489,6 +493,7 @@ internal fun ActionButton(
     enabled: Boolean = true,
 ) {
     val shape = RoundedCornerShape(10.dp)
+    val interactionSource = remember { MutableInteractionSource() }
     val (background, foreground) = when (kind) {
         ActionKind.NORMAL -> Palette.Button to Palette.ButtonText
         ActionKind.PRIMARY -> Palette.On to Palette.OnAccent
@@ -498,10 +503,17 @@ internal fun ActionButton(
         modifier
             .heightIn(min = 40.dp)
             .alpha(if (enabled) 1f else DISABLED_ALPHA)
+            .pressScale(interactionSource, enabled = enabled, pressedScale = 0.96f)
             .clip(shape)
             .background(background)
             .dpadFocusRing(shape)
-            .clickable(enabled = enabled, role = Role.Button, onClick = onClick)
+            .clickable(
+                interactionSource = interactionSource,
+                indication = LocalIndication.current,
+                enabled = enabled,
+                role = Role.Button,
+                onClick = onClick,
+            )
             .padding(horizontal = 16.dp, vertical = 6.dp),
         contentAlignment = Alignment.Center,
     ) {
@@ -569,7 +581,9 @@ internal fun PinBoxes(pin: String, box: Dp, gap: Dp, modifier: Modifier = Modifi
         fontFamily = androidx.compose.ui.text.font.FontFamily.Monospace,
         letterSpacing = 0.sp,
     )
-    val shape = RoundedCornerShape(14.dp)
+    val corner = if (box < 48.dp) 10.dp else 14.dp
+    val shape = RoundedCornerShape(corner)
+    val accentBarWidth = (box * 0.28f).coerceIn(10.dp, 20.dp)
     Row(
         modifier.semantics(mergeDescendants = true) { if (description != null) contentDescription = description },
         horizontalArrangement = Arrangement.Center,
@@ -581,10 +595,19 @@ internal fun PinBoxes(pin: String, box: Dp, gap: Dp, modifier: Modifier = Modifi
                     .size(box)
                     .clip(shape)
                     .background(Palette.PinBox)
+                    .topEdgeSheen(corner)
                     .border(1.dp, Palette.CardBorder, shape),
                 contentAlignment = Alignment.Center,
             ) {
                 Text(digit.toString(), style = style, color = Palette.PinText, maxLines = 1)
+                Box(
+                    Modifier
+                        .align(Alignment.BottomCenter)
+                        .padding(bottom = 5.dp)
+                        .size(width = accentBarWidth, height = 2.dp)
+                        .clip(CircleShape)
+                        .background(Palette.Accent.copy(alpha = 0.45f)),
+                )
             }
         }
     }
@@ -620,6 +643,7 @@ internal fun SettingsGroup(title: String, modifier: Modifier = Modifier, content
                 .fillMaxWidth()
                 .clip(RoundedCornerShape(Dimens.CardRadius))
                 .background(Palette.Card)
+                .topEdgeSheen(Dimens.CardRadius)
                 .border(1.dp, Palette.CardBorder, RoundedCornerShape(Dimens.CardRadius))
                 .hideFirstDivider(),
             content = content,
@@ -859,29 +883,78 @@ internal fun DetailNote(text: String, warn: Boolean = false) {
 private fun OptionCard(option: CardOption, selected: Boolean, modifier: Modifier, onClick: () -> Unit) {
     val compact = LocalCompact.current
     val shape = RoundedCornerShape(16.dp)
+    val interactionSource = remember { MutableInteractionSource() }
+    val bgColor by animateColorAsState(
+        targetValue = if (selected) Palette.TileActive else Palette.CardElevated,
+        animationSpec = tween(160),
+        label = "option_bg",
+    )
+    val borderColor by animateColorAsState(
+        targetValue = if (selected) Palette.Accent else Palette.CardBorder,
+        animationSpec = tween(160),
+        label = "option_border",
+    )
     Column(
         modifier
+            .pressScale(interactionSource, pressedScale = 0.98f)
             .clip(shape)
-            .background(if (selected) Palette.Tint else Palette.CardElevated)
+            .background(bgColor)
+            .topEdgeSheen(16.dp)
             .border(
                 width = if (selected) 1.5.dp else 1.dp,
-                color = if (selected) Palette.Accent else Palette.CardBorder,
+                color = borderColor,
                 shape = shape,
             )
             .dpadFocusRing(shape)
-            .selectable(selected = selected, role = Role.RadioButton, onClick = onClick)
-            .padding(horizontal = 16.dp, vertical = if (compact) 11.dp else 14.dp),
-    ) {
-        Row(verticalAlignment = Alignment.CenterVertically, horizontalArrangement = Arrangement.spacedBy(8.dp)) {
-            Text(
-                option.title,
-                style = UiType.rowTitle(compact).copy(fontWeight = FontWeight.Medium),
-                color = Palette.Text,
-                modifier = Modifier.weight(1f, fill = false),
+            .selectable(
+                selected = selected,
+                interactionSource = interactionSource,
+                indication = LocalIndication.current,
+                role = Role.RadioButton,
+                onClick = onClick,
             )
-            option.tag?.let { Tag(it) }
+            .padding(horizontal = 16.dp, vertical = if (compact) 12.dp else 15.dp),
+    ) {
+        Row(
+            Modifier.fillMaxWidth(),
+            verticalAlignment = Alignment.CenterVertically,
+            horizontalArrangement = Arrangement.spacedBy(8.dp),
+        ) {
+            Row(
+                Modifier.weight(1f),
+                verticalAlignment = Alignment.CenterVertically,
+                horizontalArrangement = Arrangement.spacedBy(8.dp),
+            ) {
+                Text(
+                    option.title,
+                    style = UiType.rowTitle(compact).copy(fontWeight = FontWeight.SemiBold),
+                    color = Palette.Text,
+                    maxLines = 1,
+                    overflow = TextOverflow.Ellipsis,
+                    modifier = Modifier.weight(1f, fill = false),
+                )
+                option.tag?.let { Tag(it) }
+            }
+            Box(
+                Modifier
+                    .size(18.dp)
+                    .clip(CircleShape)
+                    .background(if (selected) Palette.Accent else Color.Transparent)
+                    .then(
+                        if (!selected) {
+                            Modifier.border(1.5.dp, Palette.Muted.copy(alpha = 0.45f), CircleShape)
+                        } else {
+                            Modifier
+                        },
+                    ),
+                contentAlignment = Alignment.Center,
+            ) {
+                if (selected) {
+                    Icon(Glyphs.Check, contentDescription = null, tint = Palette.OnAccent, modifier = Modifier.size(11.dp))
+                }
+            }
         }
-        Text(option.text, style = UiType.rowSummary(compact), color = Palette.Muted, modifier = Modifier.padding(top = 4.dp))
+        Text(option.text, style = UiType.rowSummary(compact), color = Palette.Text2, modifier = Modifier.padding(top = 6.dp))
     }
 }
 
@@ -1088,47 +1161,90 @@ private fun PillSwitch(checked: Boolean) {
     }
 }
 
-/** 分段选择：哑光内嵌槽 + 浮动中性选中滑块（克制耐看，避免满屏刺眼蓝色块）。 */
+/** 分段选择：哑光内嵌槽 + 物理缓动平移中性滑块（单趟 Layout 零抖动，丝滑顺手）。 */
 @Composable
 private fun Segmented(options: List<String>, selected: Int, onSelect: (Int) -> Unit, modifier: Modifier, fill: Boolean) {
+    if (options.isEmpty()) return
     val compact = LocalCompact.current
     val troughShape = RoundedCornerShape(12.dp)
-    Row(
-        modifier
+    val itemShape = RoundedCornerShape(9.dp)
+    val hasSelection = selected in options.indices
+    val slideIndex by animateFloatAsState(
+        targetValue = if (hasSelection) selected.toFloat() else 0f,
+        animationSpec = spring(dampingRatio = Spring.DampingRatioNoBouncy, stiffness = Spring.StiffnessMediumLow),
+        label = "segment_slide",
+    )
+    Layout(
+        modifier = modifier
             .clip(troughShape)
             .background(Palette.SegmentBackground)
             .padding(3.dp)
             .selectableGroup(),
-        horizontalArrangement = Arrangement.spacedBy(2.dp),
-    ) {
-        options.forEachIndexed { index, label ->
-            val on = index == selected
-            val itemShape = RoundedCornerShape(9.dp)
-            Box(
-                (if (fill) Modifier.weight(1f) else Modifier.widthIn(min = if (compact) 58.dp else 68.dp))
-                    .heightIn(min = if (compact) 34.dp else 38.dp)
-                    .clip(itemShape)
-                    .then(
-                        if (on) {
-                            Modifier
-                                .background(Palette.SegmentSelected)
-                                .border(0.5.dp, Palette.SegmentSelectedBorder, itemShape)
-                        } else {
-                            Modifier
-                        },
-                    )
-                    .dpadFocusRing(itemShape)
-                    .selectable(selected = on, role = Role.RadioButton) { onSelect(index) }
-                    .padding(horizontal = 12.dp),
-                contentAlignment = Alignment.Center,
-            ) {
-                Text(
-                    label,
-                    style = UiType.option(compact).copy(fontWeight = if (on) FontWeight.SemiBold else FontWeight.Normal),
-                    color = if (on) Palette.Text else Palette.Muted,
-                    maxLines = 1,
-                    overflow = TextOverflow.Ellipsis,
+        content = {
+            if (hasSelection) {
+                Box(
+                    Modifier
+                        .clip(itemShape)
+                        .background(Palette.SegmentSelected)
+                        .topEdgeSheen(9.dp)
+                        .border(0.5.dp, Palette.SegmentSelectedBorder, itemShape),
                 )
+            }
+            options.forEachIndexed { index, label ->
+                val on = index == selected
+                val textColor by animateColorAsState(
+                    targetValue = if (on) Palette.Text else Palette.Muted,
+                    animationSpec = tween(160),
+                    label = "segment_text",
+                )
+                Box(
+                    Modifier
+                        .clip(itemShape)
+                        .dpadFocusRing(itemShape)
+                        .selectable(selected = on, role = Role.RadioButton) { onSelect(index) }
+                        .padding(horizontal = 12.dp),
+                    contentAlignment = Alignment.Center,
+                ) {
+                    Text(
+                        label,
+                        style = UiType.option(compact).copy(fontWeight = if (on) FontWeight.SemiBold else FontWeight.Normal),
+                        color = textColor,
+                        maxLines = 1,
+                        overflow = TextOverflow.Ellipsis,
+                    )
+                }
+            }
+        },
+    ) { measurables, constraints ->
+        val indicatorMeasurable = if (hasSelection) measurables.first() else null
+        val itemMeasurables = if (hasSelection) measurables.drop(1) else measurables
+        val count = itemMeasurables.size
+        val gapPx = 2.dp.roundToPx()
+        val totalGap = gapPx * (count - 1).coerceAtLeast(0)
+        val minSlotPx = (if (compact) 58.dp else 68.dp).roundToPx()
+        val heightPx = (if (compact) 36.dp else 40.dp).roundToPx()
+        val maxAvailable = if (constraints.hasBoundedWidth) {
+            ((constraints.maxWidth - totalGap) / count).coerceAtLeast(1)
+        } else {
+            Int.MAX_VALUE
+        }
+        val slotWidth = if (fill && constraints.hasBoundedWidth) {
+            maxAvailable
+        } else {
+            val intrinsicMax = itemMeasurables.maxOf { it.maxIntrinsicWidth(heightPx) }
+            intrinsicMax.coerceAtLeast(minSlotPx).coerceAtMost(maxAvailable)
+        }
+        val fixed = Constraints.fixed(slotWidth, heightPx)
+        val indicatorPlaceable = indicatorMeasurable?.measure(fixed)
+        val itemPlaceables = itemMeasurables.map { it.measure(fixed) }
+        val totalWidth = (slotWidth * count + totalGap).coerceIn(constraints.minWidth, constraints.maxWidth)
+        layout(totalWidth, heightPx) {
+            indicatorPlaceable?.placeRelative(
+                x = (slideIndex * (slotWidth + gapPx)).roundToInt(),
+                y = 0,
+            )
+            itemPlaceables.forEachIndexed { index, placeable ->
+                placeable.placeRelative(x = index * (slotWidth + gapPx), y = 0)
             }
         }
     }

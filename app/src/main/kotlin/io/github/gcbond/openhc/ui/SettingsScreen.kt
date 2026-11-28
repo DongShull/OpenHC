@@ -1,12 +1,18 @@
 package io.github.gcbond.openhc.ui
 
 import androidx.compose.animation.AnimatedContent
+import androidx.compose.animation.animateColorAsState
+import androidx.compose.animation.core.Spring
+import androidx.compose.animation.core.animateDpAsState
+import androidx.compose.animation.core.spring
 import androidx.compose.animation.core.tween
 import androidx.compose.animation.fadeIn
 import androidx.compose.animation.fadeOut
 import androidx.compose.animation.togetherWith
+import androidx.compose.foundation.LocalIndication
 import androidx.compose.foundation.background
 import androidx.compose.foundation.clickable
+import androidx.compose.foundation.interaction.MutableInteractionSource
 import androidx.compose.foundation.layout.Arrangement
 import androidx.compose.foundation.layout.Box
 import androidx.compose.foundation.layout.BoxWithConstraints
@@ -17,6 +23,7 @@ import androidx.compose.foundation.layout.Spacer
 import androidx.compose.foundation.layout.fillMaxHeight
 import androidx.compose.foundation.layout.fillMaxSize
 import androidx.compose.foundation.layout.fillMaxWidth
+import androidx.compose.foundation.layout.height
 import androidx.compose.foundation.layout.heightIn
 import androidx.compose.foundation.layout.padding
 import androidx.compose.foundation.layout.size
@@ -38,6 +45,7 @@ import androidx.compose.runtime.CompositionLocalProvider
 import androidx.compose.runtime.LaunchedEffect
 import androidx.compose.runtime.getValue
 import androidx.compose.runtime.mutableStateOf
+import androidx.compose.runtime.remember
 import androidx.compose.runtime.saveable.rememberSaveable
 import androidx.compose.runtime.setValue
 import androidx.compose.ui.Alignment
@@ -111,8 +119,8 @@ internal fun SettingsScreen(
                             .fillMaxHeight()
                             .verticalScroll(detailScroll)
                             .padding(
-                                horizontal = if (compact) 24.dp else 32.dp,
-                                vertical = if (compact) 18.dp else 26.dp,
+                                horizontal = if (compact) 26.dp else 36.dp,
+                                vertical = if (compact) 20.dp else 28.dp,
                             ),
                         horizontalAlignment = Alignment.CenterHorizontally,
                     ) {
@@ -181,9 +189,10 @@ private fun SettingsSidebar(
     onBack: () -> Unit,
     compact: Boolean,
 ) {
+    val backInteraction = remember { MutableInteractionSource() }
     Column(
         Modifier
-            .width(if (compact) 216.dp else 248.dp)
+            .width(if (compact) 220.dp else 256.dp)
             .fillMaxHeight()
             .background(Palette.RailBackground)
             .drawBehind {
@@ -194,24 +203,30 @@ private fun SettingsSidebar(
                 )
             }
             .padding(
-                horizontal = if (compact) 12.dp else 14.dp,
-                vertical = if (compact) 14.dp else 20.dp,
+                horizontal = if (compact) 12.dp else 16.dp,
+                vertical = if (compact) 14.dp else 22.dp,
             ),
     ) {
         Row(
             Modifier
                 .fillMaxWidth()
-                .padding(start = 4.dp, end = 4.dp, bottom = if (compact) 14.dp else 20.dp),
+                .padding(start = 4.dp, end = 4.dp, bottom = if (compact) 16.dp else 22.dp),
             verticalAlignment = Alignment.CenterVertically,
             horizontalArrangement = Arrangement.spacedBy(12.dp),
         ) {
             Box(
                 Modifier
                     .size(if (compact) 36.dp else 40.dp)
+                    .pressScale(backInteraction, pressedScale = 0.94f)
                     .clip(CircleShape)
                     .background(Palette.Button)
                     .dpadFocusRing(CircleShape)
-                    .clickable(role = Role.Button, onClick = onBack),
+                    .clickable(
+                        interactionSource = backInteraction,
+                        indication = LocalIndication.current,
+                        role = Role.Button,
+                        onClick = onBack,
+                    ),
                 contentAlignment = Alignment.Center,
             ) {
                 Icon(
@@ -230,7 +245,7 @@ private fun SettingsSidebar(
                 .fillMaxWidth()
                 .verticalScroll(rememberScrollState())
                 .selectableGroup(),
-            verticalArrangement = Arrangement.spacedBy(4.dp),
+            verticalArrangement = Arrangement.spacedBy(6.dp),
         ) {
             for (category in SettingsCategory.values()) {
                 NavItem(category, category == selected) { onSelect(category) }
@@ -323,33 +338,68 @@ private fun CategoryContent(
     }
 }
 
-/** 导航项：干净中性圆角高光，选中时图标点亮强调蓝，无多余边框和装饰条。 */
+/** 导航项：平滑过渡的极简高光胶囊 + 左侧精致指示竖条，带微按压反馈。 */
 @Composable
 private fun NavItem(category: SettingsCategory, selected: Boolean, onClick: () -> Unit) {
     val compact = LocalCompact.current
     val shape = RoundedCornerShape(12.dp)
+    val interactionSource = remember { MutableInteractionSource() }
+    val bgColor by animateColorAsState(
+        targetValue = if (selected) Palette.NavSelected else Color.Transparent,
+        animationSpec = tween(160),
+        label = "nav_bg",
+    )
+    val iconColor by animateColorAsState(
+        targetValue = if (selected) Palette.Accent else Palette.Muted,
+        animationSpec = tween(160),
+        label = "nav_icon",
+    )
+    val textColor by animateColorAsState(
+        targetValue = if (selected) Palette.NavSelectedText else Palette.Text2,
+        animationSpec = tween(160),
+        label = "nav_text",
+    )
+    val indicatorHeight by animateDpAsState(
+        targetValue = if (selected) 18.dp else 0.dp,
+        animationSpec = spring(dampingRatio = Spring.DampingRatioNoBouncy, stiffness = Spring.StiffnessMediumLow),
+        label = "nav_indicator",
+    )
     Row(
         Modifier
             .fillMaxWidth()
-            .heightIn(min = if (compact) 44.dp else 48.dp)
+            .heightIn(min = if (compact) 46.dp else 50.dp)
+            .pressScale(interactionSource, pressedScale = 0.98f)
             .clip(shape)
-            .background(if (selected) Palette.NavSelected else Color.Transparent)
+            .background(bgColor)
             .dpadFocusRing(shape)
-            .selectable(selected = selected, role = Role.Tab, onClick = onClick)
-            .padding(horizontal = 14.dp),
+            .selectable(
+                selected = selected,
+                interactionSource = interactionSource,
+                indication = LocalIndication.current,
+                role = Role.Tab,
+                onClick = onClick,
+            )
+            .padding(start = 6.dp, end = 14.dp),
         verticalAlignment = Alignment.CenterVertically,
-        horizontalArrangement = Arrangement.spacedBy(12.dp),
+        horizontalArrangement = Arrangement.spacedBy(10.dp),
     ) {
+        Box(
+            Modifier
+                .width(3.dp)
+                .height(indicatorHeight)
+                .clip(CircleShape)
+                .background(Palette.Accent),
+        )
         Icon(
             category.glyph(),
             contentDescription = null,
-            tint = if (selected) Palette.Accent else Palette.Muted,
+            tint = iconColor,
             modifier = Modifier.size(19.dp),
         )
         Text(
             stringResource(category.label),
             style = UiType.nav(compact).copy(fontWeight = if (selected) FontWeight.SemiBold else FontWeight.Normal),
-            color = if (selected) Palette.NavSelectedText else Palette.Text2,
+            color = textColor,
             maxLines = 1,
             overflow = TextOverflow.Ellipsis,
         )

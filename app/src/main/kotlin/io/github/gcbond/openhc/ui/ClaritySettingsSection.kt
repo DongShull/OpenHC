@@ -12,8 +12,7 @@ import io.github.gcbond.openhc.connection.VideoClarity
 import io.github.gcbond.openhc.settings.ClarityPreferences
 
 /**
- * 「画面」组里帧率下面的「清晰度」：标准 / 高 / 最高，决定声明给手机的目标码率（见 [VideoClarity]）。下次连接生效。
- * 分段里只写档位名，选中那档的码率写在说明的开头。
+ * 「画面」组里的「清晰度」：标准 / 高 / 最高，以可视化卡片呈现档位特点与目标码率（见 [VideoClarity]）。下次连接生效。
  */
 @Composable
 internal fun ClaritySettingsSection() {
@@ -21,10 +20,10 @@ internal fun ClaritySettingsSection() {
     val prefs = remember(context) { ClarityPreferences(context) }
     var clarity by remember { mutableStateOf(prefs.clarity) }
     val options = VideoClarity.entries
-    ChoiceRow(
+    CardChoiceRow(
         title = stringResource(R.string.settings_clarity),
         summary = stringResource(R.string.settings_clarity_summary),
-        options = options.map { stringResource(shortLabel(it)) },
+        options = options.map { clarityCardOption(it) },
         selected = options.indexOf(clarity),
         description = clarityLabel(clarity) + "。" + stringResource(R.string.settings_clarity_hint),
     ) { index ->
@@ -33,10 +32,26 @@ internal fun ClaritySettingsSection() {
     }
 }
 
-private fun shortLabel(clarity: VideoClarity): Int = when (clarity) {
-    VideoClarity.STANDARD -> R.string.settings_clarity_standard_short
-    VideoClarity.HIGH -> R.string.settings_clarity_high_short
-    VideoClarity.HIGHEST -> R.string.settings_clarity_highest_short
+@Composable
+private fun clarityCardOption(clarity: VideoClarity): CardOption {
+    val mbps = (clarity.bitrate ?: 0) / 1_000_000
+    return when (clarity) {
+        VideoClarity.STANDARD -> CardOption(
+            title = stringResource(R.string.settings_clarity_standard_short),
+            text = stringResource(R.string.settings_clarity_standard_card),
+            tag = stringResource(R.string.settings_clarity_tag_default),
+        )
+        VideoClarity.HIGH -> CardOption(
+            title = stringResource(R.string.settings_clarity_high_short),
+            text = stringResource(R.string.settings_clarity_high_card, mbps),
+            tag = stringResource(R.string.settings_clarity_tag_balanced),
+        )
+        VideoClarity.HIGHEST -> CardOption(
+            title = stringResource(R.string.settings_clarity_highest_short),
+            text = stringResource(R.string.settings_clarity_highest_card, mbps),
+            tag = stringResource(R.string.settings_clarity_tag_ultra),
+        )
+    }
 }
 
 @Composable

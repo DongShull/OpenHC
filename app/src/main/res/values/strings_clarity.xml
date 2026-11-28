@@ -6,4 +6,10 @@
     <string name="settings_clarity_high">高：%1$d Mbps</string>
     <string name="settings_clarity_highest">最高：%1$d Mbps</string>
     <string name="settings_clarity_hint">越高越清楚，但手机更耗电、更容易发烫（烫了手机会自己降帧）；无线连接时也更容易卡，卡了就调回「标准」。下次连接生效。</string>
+    <string name="settings_clarity_standard_card">省电流畅 · 手机默认码率</string>
+    <string name="settings_clarity_high_card">均衡推荐 · 目标 %1$d Mbps</string>
+    <string name="settings_clarity_highest_card">细腻超清 · 目标 %1$d Mbps</string>
+    <string name="settings_clarity_tag_default">默认</string>
+    <string name="settings_clarity_tag_balanced">推荐</string>
+    <string name="settings_clarity_tag_ultra">超清</string>
 </resources>

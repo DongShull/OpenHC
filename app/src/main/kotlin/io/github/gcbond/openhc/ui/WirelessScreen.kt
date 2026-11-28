@@ -19,14 +19,23 @@ import androidx.compose.foundation.rememberScrollState
 import androidx.compose.foundation.shape.CircleShape
 import androidx.compose.foundation.shape.RoundedCornerShape
 import androidx.compose.foundation.verticalScroll
+import androidx.compose.material3.Icon
 import androidx.compose.material3.Text
 import androidx.compose.runtime.Composable
 import androidx.compose.runtime.CompositionLocalProvider
+import androidx.compose.runtime.LaunchedEffect
 import androidx.compose.runtime.compositionLocalOf
+import androidx.compose.runtime.remember
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.draw.clip
+import androidx.compose.ui.draw.drawWithContent
+import androidx.compose.ui.focus.FocusRequester
+import androidx.compose.ui.focus.focusRequester
+import androidx.compose.ui.geometry.Offset
 import androidx.compose.ui.graphics.Color
+import androidx.compose.ui.graphics.StrokeCap
+import androidx.compose.ui.platform.LocalView
 import androidx.compose.ui.res.stringResource
 import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.ui.text.style.TextAlign
@@ -53,7 +62,7 @@ internal class WirelessActions(
 )
 
 /**
- * 等扫码：[wide] 时二维码和连接码在左（精致白卡 + 粗体连接码）、分步引导在右；
+ * 等扫码：[wide] 时二维码和连接码在左（精致白卡 + 观景框四角线 + 粗体连接码）、时间轴分步引导在右；
  * 否则二维码在上、引导在下；底下「停止」。[fillHeight] 为假时（整页滚动）不占满高度。
  */
 @Composable
@@ -65,6 +74,14 @@ internal fun ColumnScope.WirelessScanContent(
     wide: Boolean,
 ) {
     val compact = LocalCompact.current
+    val stopFocus = remember { FocusRequester() }
+    val view = LocalView.current
+    LaunchedEffect(Unit) {
+        if (!view.isInTouchMode) {
+            runCatching { stopFocus.requestFocus() }
+        }
+    }
+
     if (wide && fillHeight) {
         Row(
             Modifier
@@ -97,10 +114,10 @@ internal fun ColumnScope.WirelessScanContent(
                 }
                 Spacer(Modifier.height(if (compact) 10.dp else 14.dp))
                 ScanStepGuide()
-                Spacer(Modifier.height(if (compact) 8.dp else 12.dp))
+                Spacer(Modifier.height(if (compact) 10.dp else 14.dp))
                 ScanMetaLines(state)
                 Spacer(Modifier.height(if (compact) 14.dp else 22.dp))
-                StopButton(state, actions)
+                StopButton(state, actions, Modifier.focusRequester(stopFocus))
             }
         }
     } else {
@@ -126,7 +143,7 @@ internal fun ColumnScope.WirelessScanContent(
                 BodyText(wirelessHint(state))
                 ScanMetaLines(state)
                 Spacer(Modifier.height(if (compact) 10.dp else 16.dp))
-                StopButton(state, actions)
+                StopButton(state, actions, Modifier.focusRequester(stopFocus))
             }
         }
     }
@@ -141,81 +158,179 @@ private fun ScanStepGuide() {
             .fillMaxWidth()
             .clip(shape)
             .background(Palette.CardElevated)
+            .topEdgeSheen(Dimens.SubCardRadius)
             .border(1.dp, Palette.CardBorder, shape)
-            .padding(horizontal = 16.dp, vertical = if (compact) 10.dp else 14.dp),
-        verticalArrangement = Arrangement.spacedBy(if (compact) 8.dp else 10.dp),
+            .padding(horizontal = 18.dp, vertical = if (compact) 12.dp else 16.dp),
     ) {
-        ScanStepRow("1", stringResource(R.string.home_scan_step1))
-        ScanStepRow("2", stringResource(R.string.home_scan_step2))
-        ScanStepRow("3", stringResource(R.string.home_scan_step3))
+        ScanStepRow(
+            number = "1",
+            title = stringResource(R.string.home_scan_step1_title),
+            desc = stringResource(R.string.home_scan_step1_desc),
+            showConnector = true,
+        )
+        ScanStepRow(
+            number = "2",
+            title = stringResource(R.string.home_scan_step2_title),
+            desc = stringResource(R.string.home_scan_step2_desc),
+            showConnector = true,
+        )
+        ScanStepRow(
+            number = "3",
+            title = stringResource(R.string.home_scan_step3_title),
+            desc = stringResource(R.string.home_scan_step3_desc),
+            showConnector = false,
+        )
     }
 }
 
 @Composable
-private fun ScanStepRow(number: String, text: String) {
+private fun ScanStepRow(number: String, title: String, desc: String, showConnector: Boolean) {
     val compact = LocalCompact.current
     Row(
-        verticalAlignment = Alignment.CenterVertically,
-        horizontalArrangement = Arrangement.spacedBy(10.dp),
+        Modifier.fillMaxWidth(),
+        horizontalArrangement = Arrangement.spacedBy(12.dp),
     ) {
-        Box(
+        Column(horizontalAlignment = Alignment.CenterHorizontally) {
+            Box(
+                Modifier
+                    .size(if (compact) 22.dp else 24.dp)
+                    .clip(CircleShape)
+                    .background(Palette.Tint),
+                contentAlignment = Alignment.Center,
+            ) {
+                Text(
+                    number,
+                    style = UiType.footer(compact).copy(fontWeight = FontWeight.Bold),
+                    color = Palette.Accent,
+                    maxLines = 1,
+                )
+            }
+            if (showConnector) {
+                Box(
+                    Modifier
+                        .padding(vertical = 3.dp)
+                        .width(1.dp)
+                        .height(if (compact) 20.dp else 26.dp)
+                        .background(Palette.Divider),
+                )
+            }
+        }
+        Column(
             Modifier
-                .size(if (compact) 22.dp else 24.dp)
-                .clip(CircleShape)
-                .background(Palette.Tint),
-            contentAlignment = Alignment.Center,
+                .weight(1f)
+                .padding(bottom = if (showConnector) (if (compact) 8.dp else 12.dp) else 0.dp),
         ) {
             Text(
-                number,
-                style = UiType.footer(compact).copy(fontWeight = FontWeight.Bold),
-                color = Palette.Accent,
+                title,
+                style = UiType.rowTitle(compact).copy(fontWeight = FontWeight.SemiBold),
+                color = Palette.Text,
                 maxLines = 1,
             )
+            Text(
+                desc,
+                style = UiType.footer(compact),
+                color = Palette.Muted,
+                modifier = Modifier.padding(top = 2.dp),
+            )
         }
-        Text(text, style = UiType.cardText(compact), color = Palette.Text2)
     }
 }
 
 @Composable
-private fun StopButton(state: WirelessUiState, actions: WirelessActions) {
+private fun StopButton(state: WirelessUiState, actions: WirelessActions, modifier: Modifier = Modifier) {
     PillButton(
         stringResource(R.string.action_stop),
         actions.onStop,
+        modifier = modifier,
         primary = false,
         enabled = state.phase != WirelessPhase.STOPPING,
     )
 }
 
-/** 二维码，下面一排连接码。 */
+/** 二维码（克制四角观景装饰线）与下方等宽连接码。严格遵循 [QrPinLayout] 尺寸预算。 */
 @Composable
 private fun QrAndPin(qr: String, pin: String?, size: QrPinSize) {
-    val qrShape = RoundedCornerShape(18.dp)
+    val qrShape = RoundedCornerShape(16.dp)
+    val bracketColor = Palette.Accent.copy(alpha = 0.65f)
     Column(horizontalAlignment = Alignment.CenterHorizontally) {
         Spacer(Modifier.height(QrPinLayout.QR_MARGIN.dp))
-        // 码图自带 2 个模块的白边：外面再补约 2 个模块的白边，深浅色下都清晰好扫。
-        QrCodeImage(
-            qr,
+        Box(
             Modifier
                 .size(size.qr.dp)
-                .clip(qrShape)
-                .background(Color.White)
-                .border(1.dp, Palette.CardBorder, qrShape)
-                .padding((size.qr * QR_EXTRA_QUIET).dp),
-        )
+                .drawWithContent {
+                    drawContent()
+                    val len = 14.dp.toPx()
+                    val stroke = 2.dp.toPx()
+                    val inset = 2.dp.toPx()
+                    val w = this.size.width
+                    val h = this.size.height
+                    // 左上
+                    drawLine(bracketColor, Offset(inset, inset + len), Offset(inset, inset), stroke, StrokeCap.Round)
+                    drawLine(bracketColor, Offset(inset, inset), Offset(inset + len, inset), stroke, StrokeCap.Round)
+                    // 右上
+                    drawLine(bracketColor, Offset(w - inset - len, inset), Offset(w - inset, inset), stroke, StrokeCap.Round)
+                    drawLine(bracketColor, Offset(w - inset, inset), Offset(w - inset, inset + len), stroke, StrokeCap.Round)
+                    // 左下
+                    drawLine(bracketColor, Offset(inset, h - inset - len), Offset(inset, h - inset), stroke, StrokeCap.Round)
+                    drawLine(bracketColor, Offset(inset, h - inset), Offset(inset + len, h - inset), stroke, StrokeCap.Round)
+                    // 右下
+                    drawLine(bracketColor, Offset(w - inset - len, h - inset), Offset(w - inset, h - inset), stroke, StrokeCap.Round)
+                    drawLine(bracketColor, Offset(w - inset, h - inset - len), Offset(w - inset, h - inset), stroke, StrokeCap.Round)
+                },
+            contentAlignment = Alignment.Center,
+        ) {
+            QrCodeImage(
+                qr,
+                Modifier
+                    .size(size.qr.dp)
+                    .padding(6.dp)
+                    .clip(qrShape)
+                    .background(Color.White)
+                    .border(1.dp, Palette.CardBorder, qrShape)
+                    .padding((size.qr * QR_EXTRA_QUIET).dp),
+            )
+        }
         if (pin != null && size.pinBox > 0f) {
-            Spacer(Modifier.height(size.pinTop.dp))
+            if (size.pinTop >= 28f) {
+                Box(
+                    Modifier.height(size.pinTop.dp),
+                    contentAlignment = Alignment.BottomCenter,
+                ) {
+                    Text(
+                        stringResource(R.string.home_scan_pin_label),
+                        style = UiType.footer(true),
+                        color = Palette.Muted,
+                        modifier = Modifier.padding(bottom = 5.dp),
+                    )
+                }
+            } else {
+                Spacer(Modifier.height(size.pinTop.dp))
+            }
             PinBoxes(pin, size.pinBox.dp, size.pinGap.dp, description = stringResource(R.string.home_pin_description, pin))
         }
         Spacer(Modifier.height(QrPinLayout.QR_MARGIN.dp))
     }
 }
 
-/** 等扫码时的补充网络、广播与告警信息。 */
+/** 等扫码时的网络胶囊与告警信息。 */
 @Composable
 private fun ScanMetaLines(state: WirelessUiState) {
+    val compact = LocalCompact.current
+    val pillShape = RoundedCornerShape(percent = 50)
+    Row(
+        Modifier
+            .clip(pillShape)
+            .background(Palette.CardElevated)
+            .border(1.dp, Palette.CardBorder, pillShape)
+            .padding(horizontal = 12.dp, vertical = 6.dp),
+        verticalAlignment = Alignment.CenterVertically,
+        horizontalArrangement = Arrangement.spacedBy(7.dp),
+    ) {
+        Icon(Glyphs.Wifi, contentDescription = null, tint = Palette.Accent, modifier = Modifier.size(14.dp))
+        Text(wirelessNetworkText(state), style = UiType.footer(compact), color = Palette.Text2)
+    }
     if (state.addressMismatch) Line(stringResource(R.string.wireless_warning_manual_address), Palette.Warn)
     state.notice?.let { Line(wirelessNoticeText(it), Palette.Warn) }
-    Line(wirelessNetworkText(state), Palette.Muted)
     state.beacon?.let { wirelessBeaconText(it) }?.let { Line(it, Palette.Muted) }
 }
 

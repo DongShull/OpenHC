@@ -35,20 +35,29 @@ internal object Palette {
 
     private fun pick(dark: Long, light: Long) = Color(if (this.dark) dark else light)
 
-    /** 页面底色：中性哑光石墨黑 / 极浅中性灰。 */
-    val Background get() = pick(0xFF0C0D10, 0xFFF2F3F7)
+    /** 页面底色：深邃碳黑石墨 / 柔和陶瓷浅灰。 */
+    val Background get() = pick(0xFF0B0D11, 0xFFEFF1F6)
 
     /** 设置页全高左侧导航栏底色。 */
-    val RailBackground get() = pick(0xFF12141A, 0xFFFFFFFF)
+    val RailBackground get() = pick(0xFF101319, 0xFFF8F9FC)
 
     /** 主卡片、分组框。 */
-    val Card get() = pick(0xFF181B22, 0xFFFFFFFF)
+    val Card get() = pick(0xFF161922, 0xFFFFFFFF)
 
     /** 卡片内次级面板（子信息块、未选中选项卡）。 */
-    val CardElevated get() = pick(0xFF20242D, 0xFFF6F7FA)
+    val CardElevated get() = pick(0xFF1E222D, 0xFFF4F6FA)
 
     /** 极轻弱的发丝分隔描边，不抢视觉。 */
-    val CardBorder get() = if (dark) Color(0x0FFFFFFF) else Color(0x120F172A)
+    val CardBorder get() = if (dark) Color(0x14FFFFFF) else Color(0x140F172A)
+
+    /** 卡片顶部 0.5dp 极细微光高光边，提升层次质感而不花哨。 */
+    val CardSheen get() = if (dark) Color(0x1EFFFFFF) else Color(0xCCFFFFFF)
+
+    /** 快捷控制磁贴激活底色与柔和边。 */
+    val TileActive get() = pick(0xFF192434, 0xFFEBF4FF)
+    val TileActiveBorder get() = if (dark) Color(0x4D0A84FF) else Color(0x3D007AFF)
+    val TilePositive get() = pick(0xFF13261E, 0xFFEAF8F0)
+    val TilePositiveBorder get() = if (dark) Color(0x4530D158) else Color(0x3818A957)
 
     val Text get() = pick(0xFFF3F4F6, 0xFF111318)
 
@@ -172,16 +181,16 @@ private val DarkColorScheme = darkColorScheme(
     secondary = Color(0xFF0A84FF),
     onSecondary = Color.White,
     tertiary = Color(0xFF30D158),
-    background = Color(0xFF0C0D10),
+    background = Color(0xFF0B0D11),
     onBackground = Color(0xFFF3F4F6),
-    surface = Color(0xFF181B22),
+    surface = Color(0xFF161922),
     onSurface = Color(0xFFF3F4F6),
     surfaceVariant = Color(0xFF232732),
     onSurfaceVariant = Color(0xFFA1A7B3),
-    surfaceContainerLowest = Color(0xFF0C0D10),
-    surfaceContainerLow = Color(0xFF12141A),
-    surfaceContainer = Color(0xFF181B22),
-    surfaceContainerHigh = Color(0xFF20242D),
+    surfaceContainerLowest = Color(0xFF0B0D11),
+    surfaceContainerLow = Color(0xFF101319),
+    surfaceContainer = Color(0xFF161922),
+    surfaceContainerHigh = Color(0xFF1E222D),
     surfaceContainerHighest = Color(0xFF2B303C),
     outline = Color(0xFF6F7685),
     outlineVariant = Color(0xFF343844),
@@ -199,16 +208,16 @@ private val LightColorScheme = lightColorScheme(
     secondary = Color(0xFF007AFF),
     onSecondary = Color.White,
     tertiary = Color(0xFF18A957),
-    background = Color(0xFFF2F3F7),
+    background = Color(0xFFEFF1F6),
     onBackground = Color(0xFF111318),
     surface = Color.White,
     onSurface = Color(0xFF111318),
     surfaceVariant = Color(0xFFE9ECF2),
     onSurfaceVariant = Color(0xFF4F5665),
     surfaceContainerLowest = Color.White,
-    surfaceContainerLow = Color.White,
+    surfaceContainerLow = Color(0xFFF8F9FC),
     surfaceContainer = Color.White,
-    surfaceContainerHigh = Color(0xFFF6F7FA),
+    surfaceContainerHigh = Color(0xFFF4F6FA),
     surfaceContainerHighest = Color(0xFFE9ECF2),
     outline = Color(0xFF838A98),
     outlineVariant = Color(0xFFD4D8E0),

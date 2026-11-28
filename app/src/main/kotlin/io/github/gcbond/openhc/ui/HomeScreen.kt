@@ -2,10 +2,15 @@ package io.github.gcbond.openhc.ui
 
 import android.content.ActivityNotFoundException
 import android.widget.Toast
+import androidx.compose.animation.animateColorAsState
+import androidx.compose.animation.core.tween
+import androidx.compose.foundation.LocalIndication
 import androidx.compose.foundation.background
 import androidx.compose.foundation.border
 import androidx.compose.foundation.clickable
+import androidx.compose.foundation.interaction.MutableInteractionSource
 import androidx.compose.foundation.layout.Arrangement
+import androidx.compose.foundation.layout.Box
 import androidx.compose.foundation.layout.BoxWithConstraints
 import androidx.compose.foundation.layout.Column
 import androidx.compose.foundation.layout.ColumnScope
@@ -25,6 +30,7 @@ import androidx.compose.foundation.layout.systemBarsPadding
 import androidx.compose.foundation.layout.width
 import androidx.compose.foundation.layout.widthIn
 import androidx.compose.foundation.rememberScrollState
+import androidx.compose.foundation.shape.CircleShape
 import androidx.compose.foundation.shape.RoundedCornerShape
 import androidx.compose.foundation.verticalScroll
 import androidx.compose.material3.Icon
@@ -32,7 +38,10 @@ import androidx.compose.material3.Text
 import androidx.compose.runtime.Composable
 import androidx.compose.runtime.CompositionLocalProvider
 import androidx.compose.runtime.LaunchedEffect
+import androidx.compose.runtime.getValue
+import androidx.compose.runtime.mutableStateOf
 import androidx.compose.runtime.remember
+import androidx.compose.runtime.setValue
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.draw.alpha
@@ -51,6 +60,7 @@ import androidx.compose.ui.text.style.TextOverflow
 import androidx.compose.ui.unit.dp
 import io.github.gcbond.openhc.BuildConfig
 import io.github.gcbond.openhc.IdentityLoader
+import io.github.gcbond.openhc.OpenHcApp
 import io.github.gcbond.openhc.R
 import io.github.gcbond.openhc.connection.ConnectionUiState
 import io.github.gcbond.openhc.connection.Notice
@@ -63,6 +73,7 @@ import io.github.gcbond.openhc.settings.ClarityPreferences
 import io.github.gcbond.openhc.settings.WirelessPreferences
 import io.github.gcbond.openhc.startup.BootStart
 import io.github.gcbond.openhc.startup.BootStartPolicy
+import io.github.gcbond.openhc.wifi.CarHotspotAutoPreferences
 import io.github.gcbond.openhc.wireless.AutoHold
 import io.github.gcbond.openhc.wireless.WirelessNotice
 import io.github.gcbond.openhc.wireless.WirelessPhase
@@ -87,9 +98,9 @@ private val DUAL_PANE_MIN = 780.dp
 private val TOP_BADGE_MIN = 560.dp
 
 /**
- * 首页：现代新能源座舱横屏布局。
- * - 顶栏：左侧 OpenHC 徽标 + 应用名 + 实时状态胶囊，右侧紧凑主题切换 + 「设置」按钮；
- * - 宽屏主区：左侧为主操作/动态连接状态主卡，右侧为无线/有线互联概览卡与座舱参数速览条；
+ * 首页：旗舰极简新能源车机座舱布局。
+ * - 顶栏：左侧品牌徽标 + 应用名 + 实时状态胶囊，右侧丝滑日夜切换 + 「设置」；
+ * - 宽屏主区：左侧为「车机 × 手机互联视觉主舞台」与主行动按钮，右侧为可操作座舱快捷控制坞（连接模式卡 + 2×2 快捷磁贴 + 设置/版本条）；
  * - 等扫码时切换为全宽左右分栏扫码卡片；窄屏或矮屏自动平滑回落为单列滚动。
  */
 @Composable
@@ -107,12 +118,14 @@ internal fun HomeScreen(
     val appSettings = remember(context) { AppSettings(context) }
     val clarityPrefs = remember(context) { ClarityPreferences(context) }
     val audioPrefs = remember(context) { AudioPreferences(context) }
+    val carHotspotAutoPrefs = remember(context) { CarHotspotAutoPreferences(context) }
     val identityLoaded = identity is IdentityLoader.Result.Loaded
     // 设置是在设置页里改的，回到首页时首页重新组合，这里每次读到的都是新值。
     val wiredOnly = prefs.wiredOnly
     val wiredState = remember(wired) { wired.withoutIdentityNotice() }
     val plugged = remember(wiredState.phase, wiredState.notice, wireless.phase) { actions.phonePlugged() }
     val scanningQr = wireless.phase == WirelessPhase.WAITING_FOR_SCAN && wireless.qrCode != null
+    var bootOn by remember(context, wiredState.phase, wireless.phase) { mutableStateOf(BootStart.isEnabled(context)) }
 
     BoxWithConstraints(
         Modifier
@@ -146,7 +159,7 @@ internal fun HomeScreen(
                 )
                 IdentityHomeNotice(identity, Modifier.padding(top = gap))
                 WifiRestoreCard(Modifier.padding(top = gap))
-                HomeBanners(wiredState, wireless, wiredOnly, wirelessActions, Modifier.padding(top = gap))
+                HomeBanners(wiredState, wireless, wiredOnly, bootOn, wirelessActions, Modifier.padding(top = gap))
 
                 val bodyModifier = (if (fill) Modifier.weight(1f) else Modifier)
                     .fillMaxWidth()
@@ -170,16 +183,22 @@ internal fun HomeScreen(
                             wide = wide,
                             dualPane = true,
                             modifier = Modifier
-                                .weight(1.18f)
+                                .weight(1.12f)
                                 .fillMaxHeight(),
                         )
-                        CockpitOverviewColumn(
+                        CockpitControlDock(
                             wired = wiredState,
                             wireless = wireless,
                             prefs = prefs,
                             appSettings = appSettings,
                             clarityPrefs = clarityPrefs,
                             audioPrefs = audioPrefs,
+                            carHotspotAutoPrefs = carHotspotAutoPrefs,
+                            bootOn = bootOn,
+                            onToggleBoot = {
+                                BootStart.setEnabled(context, !bootOn)
+                                bootOn = BootStart.isEnabled(context)
+                            },
                             wiredOnly = wiredOnly,
                             plugged = plugged,
                             identityLoaded = identityLoaded,
@@ -187,7 +206,7 @@ internal fun HomeScreen(
                             wirelessActions = wirelessActions,
                             onOpenSettings = onOpenSettings,
                             modifier = Modifier
-                                .weight(0.88f)
+                                .weight(0.94f)
                                 .fillMaxHeight(),
                         )
                     }
@@ -215,7 +234,7 @@ internal fun HomeScreen(
     }
 }
 
-/** 顶栏：左侧品牌徽标 + 名称 + 实时状态胶囊，右侧深浅色切换 + 「设置」。 */
+/** 顶栏：左侧品牌徽标 + 名称 + 实时状态胶囊，右侧丝滑深浅色切换 + 「设置」。 */
 @Composable
 private fun HomeTopBar(
     wired: ConnectionUiState,
@@ -267,8 +286,8 @@ private fun topStatusBadge(
 }
 
 /**
- * 主控卡片：进行中时呈现脉冲图标 + 阶段进度条 + 状态说明与按钮；扫码时全宽左右排；
- * 空闲时双栏模式下聚焦主行动按钮，单栏模式下附上无线/有线方式卡片。
+ * 主控卡片：左侧「车机 × 手机互联视觉主舞台」与核心操作按钮；扫码时全宽左右排；
+ * 窄屏单栏模式下附带两种连接方式简介。
  */
 @Composable
 private fun PrimaryCockpitCard(
@@ -291,22 +310,21 @@ private fun PrimaryCockpitCard(
                 val warning = wired.phase == Phase.USB_DEBUGGING_ON || wired.phase == Phase.REPLUG_REQUIRED ||
                     wired.step == Step.PHONE_SWITCH_SLOW
                 val projecting = wired.phase == Phase.PROJECTING
-                val pulsing = !projecting && !warning && wired.phase != Phase.STOPPING
-                val tone = when {
-                    warning -> BadgeTone.WARN
-                    projecting -> BadgeTone.POSITIVE
-                    else -> BadgeTone.ACCENT
+                val mode = when {
+                    warning -> TotemMode.WARNING
+                    projecting -> TotemMode.PROJECTING
+                    wired.phase == Phase.STOPPING -> TotemMode.IDLE
+                    else -> TotemMode.CONNECTING
                 }
                 val stepIndex = wiredStepIndex(wired)
                 Hero(
                     fillHeight,
                     top = {
                         StatusHead(
-                            glyph = Glyphs.Plug,
+                            mode = mode,
+                            wired = true,
                             title = phaseTitle(wired.phase),
                             titleColor = if (warning) Palette.Warn else Palette.Text,
-                            pulsing = pulsing,
-                            tone = tone,
                             stepIndex = stepIndex,
                         )
                     },
@@ -320,18 +338,20 @@ private fun PrimaryCockpitCard(
                     WirelessScanContent(wireless, qr, wirelessActions, fillHeight, wide)
                 } else {
                     val projecting = wireless.phase == WirelessPhase.PROJECTING
-                    val pulsing = !projecting && wireless.phase != WirelessPhase.STOPPING
-                    val tone = if (projecting) BadgeTone.POSITIVE else BadgeTone.ACCENT
+                    val mode = when {
+                        projecting -> TotemMode.PROJECTING
+                        wireless.phase == WirelessPhase.STOPPING -> TotemMode.IDLE
+                        else -> TotemMode.CONNECTING
+                    }
                     val stepIndex = wirelessStepIndex(wireless)
                     Hero(
                         fillHeight,
                         top = {
                             StatusHead(
-                                glyph = Glyphs.Wifi,
+                                mode = mode,
+                                wired = false,
                                 title = wirelessPhaseTitle(wireless),
                                 titleColor = Palette.Text,
-                                pulsing = pulsing,
-                                tone = tone,
                                 stepIndex = stepIndex,
                             )
                         },
@@ -359,7 +379,9 @@ private fun PrimaryCockpitCard(
                     },
                     body = {
                         if (dualPane) {
-                            if (!wiredOnly) WirelessIdleLines(wireless)
+                            if (!wiredOnly && wireless.autoHold != AutoHold.READY) {
+                                WirelessIdleLines(wireless)
+                            }
                         } else {
                             IdleLines(wireless, wiredOnly)
                         }
@@ -374,19 +396,20 @@ private fun PrimaryCockpitCard(
     }
 }
 
-/** 宽屏双栏左卡空闲主视觉：清爽聚焦互联主徽标、主标题与一句引导，视觉不杂乱。 */
+/** 宽屏双栏左卡空闲主视觉：极简车机 × 手机矢量互联图腾 + 大号干脆标题 + 单行引导。 */
 @Composable
 private fun CockpitIdleHero(wiredOnly: Boolean, plugged: Boolean) {
     val compact = LocalCompact.current
-    val glyph = if (wiredOnly || plugged) Glyphs.Plug else Glyphs.CarLink
-    val tone = if (plugged) BadgeTone.POSITIVE else BadgeTone.ACCENT
-    PulseIconTile(glyph = glyph, pulsing = plugged, tone = tone)
+    CockpitLinkTotem(
+        mode = if (plugged) TotemMode.PLUGGED_READY else TotemMode.IDLE,
+        wired = wiredOnly || plugged,
+    )
     Text(
         stringResource(R.string.home_connect_title),
         style = UiType.cardTitle(compact),
         color = Palette.Text,
         textAlign = TextAlign.Center,
-        modifier = Modifier.padding(top = if (compact) 8.dp else 12.dp),
+        modifier = Modifier.padding(top = if (compact) 10.dp else 16.dp),
     )
     Text(
         stringResource(if (wiredOnly) R.string.home_hero_subtitle_wired else R.string.home_hero_subtitle_both),
@@ -394,21 +417,23 @@ private fun CockpitIdleHero(wiredOnly: Boolean, plugged: Boolean) {
         color = Palette.Text2,
         textAlign = TextAlign.Center,
         modifier = Modifier
-            .widthIn(max = 420.dp)
+            .widthIn(max = 380.dp)
             .padding(top = 6.dp),
     )
 }
 
-/** 宽屏双栏右侧概览列：无线互联卡 + 有线互联卡 + 底部座舱参数速览条。 */
-@OptIn(ExperimentalLayoutApi::class)
+/** 宽屏双栏右侧可操作座舱快捷控制坞：连接模式卡 + 可选插线胶囊 + 2×2 快捷控制磁贴 + 底部更多设置条。 */
 @Composable
-private fun CockpitOverviewColumn(
+private fun CockpitControlDock(
     wired: ConnectionUiState,
     wireless: WirelessUiState,
     prefs: WirelessPreferences,
     appSettings: AppSettings,
     clarityPrefs: ClarityPreferences,
     audioPrefs: AudioPreferences,
+    carHotspotAutoPrefs: CarHotspotAutoPreferences,
+    bootOn: Boolean,
+    onToggleBoot: () -> Unit,
     wiredOnly: Boolean,
     plugged: Boolean,
     identityLoaded: Boolean,
@@ -419,201 +444,485 @@ private fun CockpitOverviewColumn(
 ) {
     val compact = LocalCompact.current
     val context = LocalContext.current
+    val isSessionActive = wired.phase != Phase.IDLE || wireless.phase != WirelessPhase.IDLE
+    val nextConnectToast = stringResource(R.string.home_tile_next_connect_toast)
+
+    var connectOnBt by remember(prefs) { mutableStateOf(prefs.connectOnBluetooth) }
+    var audioOn by remember(audioPrefs) { mutableStateOf(audioPrefs.enabled) }
+    var clarity by remember(clarityPrefs) { mutableStateOf(clarityPrefs.clarity) }
+
     val knownCount = prefs.knownPhoneList.size
-    val bootOn = BootStart.isEnabled(context)
-    val clarityShort = stringResource(
-        when (clarityPrefs.clarity) {
-            VideoClarity.STANDARD -> R.string.settings_clarity_standard_short
-            VideoClarity.HIGH -> R.string.settings_clarity_high_short
-            VideoClarity.HIGHEST -> R.string.settings_clarity_highest_short
-        },
-    )
-    val wirelessBadge: Pair<String, BadgeTone> = when {
+    val modeShort = when {
+        prefs.carHotspot && carHotspotAutoPrefs.enabled -> stringResource(R.string.home_mode_short_car_auto)
+        prefs.carHotspot -> stringResource(R.string.home_mode_short_car)
+        prefs.wifiDirect -> stringResource(R.string.home_mode_short_direct)
+        else -> stringResource(R.string.home_mode_short_hotspot)
+    }
+    val modeTitle = if (wiredOnly) {
+        stringResource(R.string.home_dock_wired_only_title)
+    } else {
+        stringResource(R.string.home_dock_connection_title, modeShort)
+    }
+    val modeBadge: Pair<String, BadgeTone> = when {
         wireless.phase == WirelessPhase.PROJECTING -> stringResource(R.string.home_badge_projecting) to BadgeTone.POSITIVE
         wireless.phase != WirelessPhase.IDLE -> stringResource(R.string.home_badge_connecting) to BadgeTone.ACCENT
         wiredOnly -> stringResource(R.string.home_badge_wired_only) to BadgeTone.NEUTRAL
-        prefs.connectOnBluetooth -> stringResource(R.string.home_card_badge_auto_on) to BadgeTone.POSITIVE
+        connectOnBt -> stringResource(R.string.home_card_badge_auto_on) to BadgeTone.POSITIVE
         else -> stringResource(R.string.home_card_badge_auto_off) to BadgeTone.NEUTRAL
     }
-    val wiredBadge: Pair<String, BadgeTone> = when {
-        wired.phase == Phase.PROJECTING -> stringResource(R.string.home_badge_projecting) to BadgeTone.POSITIVE
-        wired.phase != Phase.IDLE -> stringResource(R.string.home_badge_connecting) to BadgeTone.ACCENT
-        plugged -> stringResource(R.string.home_card_badge_plugged) to BadgeTone.POSITIVE
-        else -> stringResource(R.string.home_card_badge_plug_ready) to BadgeTone.NEUTRAL
+    val modeSub = buildString {
+        if (!wiredOnly) {
+            append(
+                if (knownCount > 0) {
+                    stringResource(R.string.home_card_known_phones, knownCount)
+                } else {
+                    stringResource(R.string.home_card_no_known_phones)
+                },
+            )
+            if (!plugged) {
+                append(" · ")
+                append(stringResource(R.string.home_dock_wired_ready_inline))
+            }
+        } else {
+            append(stringResource(R.string.home_dock_wired_ready_inline))
+        }
     }
 
+    val spacing = if (compact) 10.dp else 12.dp
     Column(
         modifier,
-        verticalArrangement = Arrangement.spacedBy(if (compact) 10.dp else 14.dp),
+        verticalArrangement = Arrangement.spacedBy(spacing),
     ) {
-        // 1. 无线互联概览卡
-        OverviewModeCard(
-            glyph = Glyphs.Wifi,
-            title = stringResource(R.string.home_card_wireless_title),
-            badge = wirelessBadge.first,
-            badgeTone = wirelessBadge.second,
-            primaryLine = if (wiredOnly) {
-                stringResource(R.string.home_connect_wired_only_note)
-            } else {
-                wirelessNetworkText(wireless)
-            },
-            secondaryLine = if (wiredOnly) {
-                null
-            } else if (knownCount > 0) {
-                stringResource(R.string.home_card_known_phones, knownCount)
-            } else {
-                stringResource(R.string.home_card_no_known_phones)
-            },
-            highlighted = wireless.phase != WirelessPhase.IDLE,
-            dimmed = wiredOnly,
-            onClick = if (!wiredOnly && wired.phase == Phase.IDLE && wireless.phase == WirelessPhase.IDLE && identityLoaded) {
-                wirelessActions.onStart
-            } else {
-                null
-            },
-            modifier = Modifier.weight(1f).fillMaxWidth(),
-        )
-
-        // 2. 有线互联概览卡
-        OverviewModeCard(
-            glyph = Glyphs.Plug,
-            title = stringResource(R.string.home_card_wired_title),
-            badge = wiredBadge.first,
-            badgeTone = wiredBadge.second,
-            primaryLine = stringResource(if (wiredOnly) R.string.home_way_cable_text_only else R.string.home_way_cable_text),
-            secondaryLine = null,
-            highlighted = wired.phase != Phase.IDLE || plugged,
-            dimmed = false,
-            onClick = if (plugged && wired.phase == Phase.IDLE && wireless.phase == WirelessPhase.IDLE) {
-                actions.onStart
-            } else {
-                null
-            },
-            modifier = Modifier.weight(1f).fillMaxWidth(),
-        )
-
-        // 3. 底部座舱参数速览条（点击直达设置）
-        val stripShape = RoundedCornerShape(Dimens.SubCardRadius)
-        Row(
-            Modifier
-                .fillMaxWidth()
-                .clip(stripShape)
-                .background(Palette.Card)
-                .border(1.dp, Palette.CardBorder, stripShape)
-                .dpadFocusRing(stripShape)
-                .clickable(role = Role.Button, onClick = onOpenSettings)
-                .padding(horizontal = 16.dp, vertical = if (compact) 10.dp else 13.dp),
-            verticalAlignment = Alignment.CenterVertically,
-            horizontalArrangement = Arrangement.spacedBy(10.dp),
-        ) {
-            FlowRow(
-                Modifier.weight(1f),
-                horizontalArrangement = Arrangement.spacedBy(8.dp),
-                verticalArrangement = Arrangement.spacedBy(6.dp),
-            ) {
-                ParamChip(stringResource(R.string.home_chip_picture, clarityShort))
-                if (appSettings.uiScalePercent != 100) {
-                    ParamChip(stringResource(R.string.home_chip_scale, appSettings.uiScalePercent))
+        // A. 顶部实时连接模式卡
+        LiveConnectionCard(
+            glyph = if (wiredOnly) Glyphs.Plug else Glyphs.Wifi,
+            title = modeTitle,
+            subtitle = modeSub,
+            badge = modeBadge.first,
+            badgeTone = modeBadge.second,
+            highlighted = wireless.phase != WirelessPhase.IDLE || wired.phase != Phase.IDLE,
+            onClick = {
+                if (!wiredOnly && !isSessionActive && identityLoaded) {
+                    wirelessActions.onStart()
+                } else {
+                    onOpenSettings()
                 }
-                ParamChip(stringResource(R.string.home_chip_audio, audioPrefs.codec.label))
-                ParamChip(stringResource(if (bootOn) R.string.home_chip_boot_on else R.string.home_chip_boot_off), active = bootOn)
+            },
+        )
+
+        // A2. 独立兄弟胶囊：检测到有线手机且空闲时一键启动有线（绝不嵌套在上方卡片内，兼容遥控器焦点）
+        if (plugged && !isSessionActive) {
+            WiredPluggedPill(onClick = actions.onStart)
+        }
+
+        // B. 中央 2×2 可操作快捷控制磁贴
+        val clarityMb = (clarity.bitrate ?: 0) / 1_000_000
+        val claritySub = when (clarity) {
+            VideoClarity.STANDARD -> stringResource(R.string.home_tile_clarity_standard)
+            VideoClarity.HIGH -> stringResource(R.string.home_tile_clarity_high, clarityMb)
+            VideoClarity.HIGHEST -> stringResource(R.string.home_tile_clarity_highest, clarityMb)
+        }
+        val clarityLevel = VideoClarity.entries.indexOf(clarity) + 1
+
+        Column(
+            Modifier.weight(1f).fillMaxWidth(),
+            verticalArrangement = Arrangement.spacedBy(spacing),
+        ) {
+            Row(
+                Modifier.weight(1f).fillMaxWidth(),
+                horizontalArrangement = Arrangement.spacedBy(spacing),
+            ) {
+                QuickControlTile(
+                    glyph = Glyphs.AutoLink,
+                    title = stringResource(R.string.home_tile_auto_reconnect),
+                    subtitle = when {
+                        wiredOnly -> stringResource(R.string.home_tile_auto_disabled)
+                        connectOnBt -> stringResource(R.string.home_tile_auto_on)
+                        else -> stringResource(R.string.home_tile_auto_off)
+                    },
+                    active = !wiredOnly && connectOnBt,
+                    enabled = !wiredOnly,
+                    role = Role.Switch,
+                    trailing = {
+                        TileStateTag(
+                            text = stringResource(if (!wiredOnly && connectOnBt) R.string.home_tile_state_on else R.string.home_tile_state_off),
+                            active = !wiredOnly && connectOnBt,
+                        )
+                    },
+                    onClick = {
+                        val next = !connectOnBt
+                        connectOnBt = next
+                        prefs.connectOnBluetooth = next
+                        (context.applicationContext as? OpenHcApp)?.wireless?.onConnectOnBluetoothChanged()
+                    },
+                    modifier = Modifier.weight(1f).fillMaxHeight(),
+                )
+                QuickControlTile(
+                    glyph = if (audioOn) Glyphs.Speaker else Glyphs.SpeakerOff,
+                    title = stringResource(R.string.home_tile_audio),
+                    subtitle = if (audioOn) {
+                        stringResource(R.string.home_tile_audio_on, audioPrefs.codec.label)
+                    } else {
+                        stringResource(R.string.home_tile_audio_off)
+                    },
+                    active = audioOn,
+                    role = Role.Switch,
+                    trailing = {
+                        TileStateTag(
+                            text = stringResource(if (audioOn) R.string.home_tile_state_on else R.string.home_tile_state_off),
+                            active = audioOn,
+                        )
+                    },
+                    onClick = {
+                        val next = !audioOn
+                        audioOn = next
+                        audioPrefs.enabled = next
+                        if (isSessionActive) Toast.makeText(context, nextConnectToast, Toast.LENGTH_SHORT).show()
+                    },
+                    modifier = Modifier.weight(1f).fillMaxHeight(),
+                )
             }
-            Icon(Glyphs.Chevron, contentDescription = null, tint = Palette.Muted, modifier = Modifier.size(18.dp))
+            Row(
+                Modifier.weight(1f).fillMaxWidth(),
+                horizontalArrangement = Arrangement.spacedBy(spacing),
+            ) {
+                QuickControlTile(
+                    glyph = Glyphs.Monitor,
+                    title = stringResource(R.string.home_tile_clarity),
+                    subtitle = claritySub,
+                    active = clarity != VideoClarity.STANDARD,
+                    role = Role.Button,
+                    trailing = { TierDots(level = clarityLevel, total = VideoClarity.entries.size) },
+                    onClick = {
+                        val entries = VideoClarity.entries
+                        val next = entries[(entries.indexOf(clarity) + 1) % entries.size]
+                        clarity = next
+                        clarityPrefs.clarity = next
+                        if (isSessionActive) Toast.makeText(context, nextConnectToast, Toast.LENGTH_SHORT).show()
+                    },
+                    modifier = Modifier.weight(1f).fillMaxHeight(),
+                )
+                QuickControlTile(
+                    glyph = Glyphs.Power,
+                    title = stringResource(R.string.home_tile_boot),
+                    subtitle = stringResource(if (bootOn) R.string.home_tile_boot_on else R.string.home_tile_boot_off),
+                    active = bootOn,
+                    positiveTone = true,
+                    role = Role.Switch,
+                    trailing = {
+                        TileStateTag(
+                            text = stringResource(if (bootOn) R.string.home_tile_state_on else R.string.home_tile_state_off),
+                            active = bootOn,
+                            positive = true,
+                        )
+                    },
+                    onClick = onToggleBoot,
+                    modifier = Modifier.weight(1f).fillMaxHeight(),
+                )
+            }
+        }
+
+        // C. 底部精简「更多设置」与版本号入口条
+        MoreSettingsStrip(
+            scalePercent = appSettings.uiScalePercent,
+            onClick = onOpenSettings,
+        )
+    }
+}
+
+@Composable
+private fun LiveConnectionCard(
+    glyph: ImageVector,
+    title: String,
+    subtitle: String,
+    badge: String,
+    badgeTone: BadgeTone,
+    highlighted: Boolean,
+    onClick: () -> Unit,
+) {
+    val compact = LocalCompact.current
+    val shape = RoundedCornerShape(Dimens.SubCardRadius)
+    val interactionSource = remember { MutableInteractionSource() }
+    val borderColor = if (highlighted) Palette.TileActiveBorder else Palette.CardBorder
+    Row(
+        Modifier
+            .fillMaxWidth()
+            .pressScale(interactionSource, pressedScale = 0.985f)
+            .clip(shape)
+            .background(if (highlighted) Palette.TileActive else Palette.Card)
+            .topEdgeSheen(Dimens.SubCardRadius)
+            .border(1.dp, borderColor, shape)
+            .dpadFocusRing(shape)
+            .clickable(
+                interactionSource = interactionSource,
+                indication = LocalIndication.current,
+                role = Role.Button,
+                onClick = onClick,
+            )
+            .padding(horizontal = 18.dp, vertical = if (compact) 12.dp else 16.dp),
+        verticalAlignment = Alignment.CenterVertically,
+        horizontalArrangement = Arrangement.spacedBy(12.dp),
+    ) {
+        IconTile(
+            glyph = glyph,
+            large = false,
+            tint = if (highlighted) Palette.Accent else Palette.Text2,
+            background = if (highlighted) Palette.Tint else Palette.CardElevated,
+        )
+        Column(Modifier.weight(1f)) {
+            Row(
+                Modifier.fillMaxWidth(),
+                verticalAlignment = Alignment.CenterVertically,
+                horizontalArrangement = Arrangement.SpaceBetween,
+            ) {
+                Text(
+                    title,
+                    style = UiType.rowTitle(compact).copy(fontWeight = FontWeight.SemiBold),
+                    color = Palette.Text,
+                    maxLines = 1,
+                    overflow = TextOverflow.Ellipsis,
+                    modifier = Modifier.weight(1f, fill = false),
+                )
+                Spacer(Modifier.width(8.dp))
+                StatusBadge(badge, badgeTone)
+            }
+            Text(
+                subtitle,
+                style = UiType.footer(compact),
+                color = Palette.Muted,
+                maxLines = 1,
+                overflow = TextOverflow.Ellipsis,
+                modifier = Modifier.padding(top = 4.dp),
+            )
         }
     }
 }
 
 @Composable
-private fun OverviewModeCard(
+private fun WiredPluggedPill(onClick: () -> Unit) {
+    val compact = LocalCompact.current
+    val shape = RoundedCornerShape(Dimens.SubCardRadius)
+    val interactionSource = remember { MutableInteractionSource() }
+    Row(
+        Modifier
+            .fillMaxWidth()
+            .pressScale(interactionSource, pressedScale = 0.98f)
+            .clip(shape)
+            .background(Palette.TilePositive)
+            .border(1.dp, Palette.TilePositiveBorder, shape)
+            .dpadFocusRing(shape)
+            .clickable(
+                interactionSource = interactionSource,
+                indication = LocalIndication.current,
+                role = Role.Button,
+                onClick = onClick,
+            )
+            .padding(horizontal = 16.dp, vertical = if (compact) 9.dp else 11.dp),
+        verticalAlignment = Alignment.CenterVertically,
+        horizontalArrangement = Arrangement.spacedBy(8.dp),
+    ) {
+        Icon(Glyphs.Plug, contentDescription = null, tint = Palette.Positive, modifier = Modifier.size(18.dp))
+        Text(
+            stringResource(R.string.home_dock_wired_plugged_action),
+            style = UiType.action(compact).copy(fontWeight = FontWeight.SemiBold),
+            color = Palette.Positive,
+            maxLines = 1,
+            overflow = TextOverflow.Ellipsis,
+            modifier = Modifier.weight(1f),
+        )
+        Icon(Glyphs.Chevron, contentDescription = null, tint = Palette.Positive, modifier = Modifier.size(16.dp))
+    }
+}
+
+@Composable
+private fun QuickControlTile(
     glyph: ImageVector,
     title: String,
-    badge: String,
-    badgeTone: BadgeTone,
-    primaryLine: String,
-    secondaryLine: String?,
-    highlighted: Boolean,
-    dimmed: Boolean,
-    onClick: (() -> Unit)?,
+    subtitle: String,
+    active: Boolean,
+    role: Role,
+    trailing: @Composable () -> Unit,
+    onClick: () -> Unit,
     modifier: Modifier = Modifier,
+    enabled: Boolean = true,
+    positiveTone: Boolean = false,
 ) {
     val compact = LocalCompact.current
     val shape = RoundedCornerShape(Dimens.SubCardRadius)
-    val borderColor = if (highlighted) Palette.TintBorder else Palette.CardBorder
+    val interactionSource = remember { MutableInteractionSource() }
+    val targetBg = when {
+        !enabled -> Palette.Card
+        active && positiveTone -> Palette.TilePositive
+        active -> Palette.TileActive
+        else -> Palette.Card
+    }
+    val targetBorder = when {
+        !enabled -> Palette.CardBorder
+        active && positiveTone -> Palette.TilePositiveBorder
+        active -> Palette.TileActiveBorder
+        else -> Palette.CardBorder
+    }
+    val targetIconTint = when {
+        !enabled -> Palette.Muted
+        active && positiveTone -> Palette.Positive
+        active -> Palette.Accent
+        else -> Palette.Text2
+    }
+    val bg by animateColorAsState(targetValue = targetBg, animationSpec = tween(160), label = "tile_bg")
+    val border by animateColorAsState(targetValue = targetBorder, animationSpec = tween(160), label = "tile_border")
+    val iconTint by animateColorAsState(targetValue = targetIconTint, animationSpec = tween(160), label = "tile_tint")
+
     Column(
         modifier
-            .alpha(if (dimmed) 0.55f else 1f)
+            .alpha(if (enabled) 1f else 0.45f)
+            .pressScale(interactionSource, enabled = enabled, pressedScale = 0.965f)
             .clip(shape)
-            .background(Palette.Card)
-            .border(1.dp, borderColor, shape)
-            .then(if (onClick != null) Modifier.dpadFocusRing(shape).clickable(role = Role.Button, onClick = onClick) else Modifier)
-            .padding(horizontal = 20.dp, vertical = if (compact) 14.dp else 18.dp),
-        verticalArrangement = Arrangement.Center,
+            .background(bg)
+            .topEdgeSheen(Dimens.SubCardRadius)
+            .border(1.dp, border, shape)
+            .dpadFocusRing(shape)
+            .clickable(
+                interactionSource = interactionSource,
+                indication = LocalIndication.current,
+                enabled = enabled,
+                role = role,
+                onClick = onClick,
+            )
+            .padding(horizontal = 16.dp, vertical = if (compact) 12.dp else 15.dp),
+        verticalArrangement = Arrangement.SpaceBetween,
     ) {
         Row(
             Modifier.fillMaxWidth(),
             verticalAlignment = Alignment.CenterVertically,
-            horizontalArrangement = Arrangement.spacedBy(12.dp),
+            horizontalArrangement = Arrangement.SpaceBetween,
         ) {
-            IconTile(
-                glyph = glyph,
-                large = false,
-                tint = if (highlighted) Palette.Accent else Palette.Text2,
-                background = if (highlighted) Palette.Tint else Palette.CardElevated,
-            )
-            Column(Modifier.weight(1f)) {
-                Row(
-                    Modifier.fillMaxWidth(),
-                    verticalAlignment = Alignment.CenterVertically,
-                    horizontalArrangement = Arrangement.SpaceBetween,
-                ) {
-                    Text(
-                        title,
-                        style = UiType.rowTitle(compact).copy(fontWeight = FontWeight.SemiBold),
-                        color = Palette.Text,
-                        maxLines = 1,
-                        overflow = TextOverflow.Ellipsis,
-                        modifier = Modifier.weight(1f, fill = false),
-                    )
-                    Spacer(Modifier.width(8.dp))
-                    StatusBadge(badge, badgeTone)
-                }
-                Text(
-                    primaryLine,
-                    style = UiType.rowSummary(compact),
-                    color = Palette.Text2,
-                    maxLines = 2,
-                    overflow = TextOverflow.Ellipsis,
-                    modifier = Modifier.padding(top = 6.dp),
-                )
-                if (secondaryLine != null) {
-                    Text(
-                        secondaryLine,
-                        style = UiType.footer(compact),
-                        color = Palette.Muted,
-                        maxLines = 1,
-                        overflow = TextOverflow.Ellipsis,
-                        modifier = Modifier.padding(top = 4.dp),
-                    )
-                }
+            Box(
+                Modifier
+                    .size(if (compact) 34.dp else 38.dp)
+                    .clip(RoundedCornerShape(10.dp))
+                    .background(
+                        when {
+                            active && positiveTone -> Palette.PositiveBackground
+                            active -> Palette.Tint
+                            else -> Palette.CardElevated
+                        },
+                    ),
+                contentAlignment = Alignment.Center,
+            ) {
+                Icon(glyph, contentDescription = null, tint = iconTint, modifier = Modifier.size(if (compact) 18.dp else 20.dp))
             }
+            trailing()
+        }
+        Column(Modifier.padding(top = if (compact) 8.dp else 12.dp)) {
+            Text(
+                title,
+                style = UiType.rowTitle(compact).copy(fontWeight = FontWeight.SemiBold),
+                color = Palette.Text,
+                maxLines = 1,
+                overflow = TextOverflow.Ellipsis,
+            )
+            Text(
+                subtitle,
+                style = UiType.footer(compact),
+                color = if (active) Palette.Text2 else Palette.Muted,
+                maxLines = 1,
+                overflow = TextOverflow.Ellipsis,
+                modifier = Modifier.padding(top = 2.dp),
+            )
         }
     }
 }
 
 @Composable
-private fun ParamChip(text: String, active: Boolean = false) {
-    val compact = LocalCompact.current
-    val shape = RoundedCornerShape(8.dp)
+private fun TileStateTag(text: String, active: Boolean, positive: Boolean = false) {
+    val fg = when {
+        active && positive -> Palette.Positive
+        active -> Palette.Accent
+        else -> Palette.Muted
+    }
+    val bg = when {
+        active && positive -> Palette.PositiveBackground
+        active -> Palette.Tint
+        else -> Palette.CardElevated
+    }
     Text(
         text = text,
-        style = UiType.footer(compact).copy(fontWeight = if (active) FontWeight.SemiBold else FontWeight.Medium),
-        color = if (active) Palette.Accent else Palette.Text2,
+        style = UiType.footer(true).copy(fontWeight = FontWeight.SemiBold),
+        color = fg,
         maxLines = 1,
         modifier = Modifier
-            .clip(shape)
-            .background(if (active) Palette.Tint else Palette.CardElevated)
-            .padding(horizontal = 10.dp, vertical = 4.dp),
+            .clip(CircleShape)
+            .background(bg)
+            .padding(horizontal = 9.dp, vertical = 3.dp),
     )
+}
+
+@Composable
+private fun TierDots(level: Int, total: Int) {
+    Row(horizontalArrangement = Arrangement.spacedBy(4.dp), verticalAlignment = Alignment.CenterVertically) {
+        for (i in 1..total) {
+            Box(
+                Modifier
+                    .size(if (i <= level) 7.dp else 6.dp)
+                    .clip(CircleShape)
+                    .background(if (i <= level) Palette.Accent else Palette.Muted.copy(alpha = 0.32f)),
+            )
+        }
+    }
+}
+
+@Composable
+private fun MoreSettingsStrip(scalePercent: Int, onClick: () -> Unit) {
+    val compact = LocalCompact.current
+    val shape = RoundedCornerShape(Dimens.SubCardRadius)
+    val interactionSource = remember { MutableInteractionSource() }
+    val hint = if (scalePercent != 100) {
+        stringResource(R.string.home_chip_scale, scalePercent) + " · " + stringResource(R.string.home_dock_more_hint)
+    } else {
+        stringResource(R.string.home_dock_more_hint)
+    }
+    Row(
+        Modifier
+            .fillMaxWidth()
+            .pressScale(interactionSource, pressedScale = 0.985f)
+            .clip(shape)
+            .background(Palette.Card)
+            .topEdgeSheen(Dimens.SubCardRadius)
+            .border(1.dp, Palette.CardBorder, shape)
+            .dpadFocusRing(shape)
+            .clickable(
+                interactionSource = interactionSource,
+                indication = LocalIndication.current,
+                role = Role.Button,
+                onClick = onClick,
+            )
+            .padding(horizontal = 16.dp, vertical = if (compact) 10.dp else 12.dp),
+        verticalAlignment = Alignment.CenterVertically,
+        horizontalArrangement = Arrangement.spacedBy(10.dp),
+    ) {
+        Icon(Glyphs.Gear, contentDescription = null, tint = Palette.Muted, modifier = Modifier.size(16.dp))
+        Text(
+            stringResource(R.string.home_dock_more_settings),
+            style = UiType.action(compact).copy(fontWeight = FontWeight.Medium),
+            color = Palette.Text,
+            maxLines = 1,
+        )
+        Text(
+            hint,
+            style = UiType.footer(compact),
+            color = Palette.Muted,
+            maxLines = 1,
+            overflow = TextOverflow.Ellipsis,
+            modifier = Modifier.weight(1f),
+        )
+        Text(
+            stringResource(R.string.home_version, BuildConfig.VERSION_NAME),
+            style = UiType.footer(compact),
+            color = Palette.Muted,
+            maxLines = 1,
+        )
+        Icon(Glyphs.Chevron, contentDescription = null, tint = Palette.Muted, modifier = Modifier.size(16.dp))
+    }
 }
 
 /** 无线连接当前所处的三段进度（-1 表示不显示进度条）。 */
@@ -652,7 +961,7 @@ private fun wiredStepIndex(state: ConnectionUiState): Int = when (state.phase) {
 }
 
 /**
- * 居中的一屏：[top]（大图标和状态，或两种连法），[body]（说明），[buttons]。[buttonsFirst] 时按钮紧跟在 [top] 下面、
+ * 居中的一屏：[top]（互联图腾和状态，或两种连法），[body]（说明），[buttons]。[buttonsFirst] 时按钮紧跟在 [top] 下面、
  * 说明放最后（空闲时「开始连接」要显眼）。[fillHeight] 时在卡片里上下居中，内容多了能滚动。
  */
 @OptIn(ExperimentalLayoutApi::class)
@@ -709,24 +1018,23 @@ private fun ColumnScope.Hero(
     }
 }
 
-/** 进行中的状态：动态脉冲大图标、标题、可选三步连接进度条。 */
+/** 进行中的状态：动态车机×手机互联图腾、标题、可选三步连接进度条。 */
 @Composable
 private fun StatusHead(
-    glyph: ImageVector,
+    mode: TotemMode,
+    wired: Boolean,
     title: String,
     titleColor: Color,
-    pulsing: Boolean,
-    tone: BadgeTone,
     stepIndex: Int,
 ) {
     val compact = LocalCompact.current
-    PulseIconTile(glyph = glyph, pulsing = pulsing, tone = tone)
+    CockpitLinkTotem(mode = mode, wired = wired)
     Text(
         title,
         style = UiType.cardTitle(compact),
         color = titleColor,
         textAlign = TextAlign.Center,
-        modifier = Modifier.padding(top = if (compact) 8.dp else 12.dp),
+        modifier = Modifier.padding(top = if (compact) 10.dp else 14.dp),
     )
     if (stepIndex in 0..2) {
         ConnectionStepBar(
@@ -782,6 +1090,7 @@ private fun WayTile(glyph: ImageVector, title: String, text: String, modifier: M
         modifier
             .clip(shape)
             .background(Palette.CardElevated)
+            .topEdgeSheen(Dimens.SubCardRadius)
             .border(1.dp, Palette.CardBorder, shape)
             .padding(horizontal = 20.dp, vertical = if (compact) 16.dp else 22.dp),
         horizontalAlignment = Alignment.CenterHorizontally,
@@ -803,7 +1112,7 @@ private fun WayTile(glyph: ImageVector, title: String, text: String, modifier: M
     }
 }
 
-/** 空闲时的小字：车机蓝牙和无线方式（或只用数据线），自动连接的情况（只是说明的那些）。要处理的事在上方提示条里。 */
+/** 空闲时的小字：单栏模式下显示车机蓝牙和无线方式（或只用数据线），以及自动连接提示。 */
 @Composable
 private fun IdleLines(wireless: WirelessUiState, wiredOnly: Boolean) {
     if (wiredOnly) {
@@ -823,6 +1132,7 @@ private fun HomeBanners(
     wired: ConnectionUiState,
     wireless: WirelessUiState,
     wiredOnly: Boolean,
+    bootEnabled: Boolean,
     actions: WirelessActions,
     modifier: Modifier,
 ) {
@@ -833,7 +1143,6 @@ private fun HomeBanners(
     val hold = wireless.autoHold?.takeIf { !wiredOnly && it.needsAction() && it != AutoHold.IDENTITY_MISSING }
     val holdText = hold?.let { wirelessAutoHoldText(it) }
     val context = LocalContext.current
-    val bootEnabled = remember(wired.phase, wireless.phase) { BootStart.isEnabled(context) }
     val bydAutostart = remember(context) { BootStart.bydAutostartIntent(context) }
     val bootMissingNotice = if (
         bootEnabled &&
@@ -953,7 +1262,7 @@ private fun WiredButtons(state: ConnectionUiState, actions: HomeActions, onShowP
     )
 }
 
-/** 页脚：左边当前模式，右边版本。 */
+/** 页脚：单栏模式下显示当前模式与版本。 */
 @Composable
 private fun HomeFooter(prefs: WirelessPreferences, modifier: Modifier = Modifier) {
     val style = UiType.footer(LocalCompact.current)
@@ -968,7 +1277,7 @@ private fun HomeFooter(prefs: WirelessPreferences, modifier: Modifier = Modifier
     }
 }
 
-/** 当前模式一句话：「无线 + 有线」或「只用数据线」，后面接开着的自动连接选项。首页页脚和设置页底部共用。 */
+/** 当前模式一句话：「无线 + 有线」或「只用数据线」，后面接开着的自动连接选项。 */
 @Composable
 internal fun modeSummary(prefs: WirelessPreferences): String {
     if (prefs.wiredOnly) return stringResource(R.string.home_mode_wired_only)
