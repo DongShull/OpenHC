@@ -7,7 +7,8 @@ import androidx.compose.foundation.border
 import androidx.compose.foundation.layout.Arrangement
 import androidx.compose.foundation.layout.Box
 import androidx.compose.foundation.layout.BoxWithConstraints
-import androidx.compose.foundation.layout.Column
+import androidx.compose.foundation.layout.ExperimentalLayoutApi
+import androidx.compose.foundation.layout.FlowRow
 import androidx.compose.foundation.layout.PaddingValues
 import androidx.compose.foundation.layout.Row
 import androidx.compose.foundation.layout.Spacer
@@ -15,7 +16,6 @@ import androidx.compose.foundation.layout.fillMaxSize
 import androidx.compose.foundation.layout.fillMaxWidth
 import androidx.compose.foundation.layout.height
 import androidx.compose.foundation.layout.padding
-import androidx.compose.foundation.layout.width
 import androidx.compose.foundation.lazy.LazyColumn
 import androidx.compose.foundation.lazy.items
 import androidx.compose.foundation.lazy.rememberLazyListState
@@ -49,51 +49,22 @@ import kotlinx.coroutines.delay
 import kotlinx.coroutines.withContext
 
 /**
- * 设置页「诊断」一组：上方「导出诊断日志」（[DiagnosticsExport]），下方「实时日志」滚动查看框（[LiveLogBuffer]）。
+ * 设置页「诊断」一组：整合后的「实时日志」滚动查看与一键导出完整诊断报告（[LiveLogBuffer] + [DiagnosticsExport]）。
  */
 @Composable
 internal fun DiagnosticsSettingsSection() {
-    val context = LocalContext.current
-    var busy by remember { mutableStateOf(false) }
-    var note by remember { mutableStateOf<Pair<String, Boolean>?>(null) }
     SettingsGroup(stringResource(R.string.settings_group_diagnostics)) {
-        GroupRow(spacing = 8.dp) {
-            RowHeader(
-                stringResource(R.string.settings_diag_export),
-                stringResource(R.string.settings_diag_export_hint),
-                summary = stringResource(R.string.settings_diag_export_summary),
-            )
-            ActionButton(
-                text = stringResource(if (busy) R.string.settings_diag_exporting else R.string.settings_diag_export_button),
-                enabled = !busy,
-                onClick = {
-                    busy = true
-                    note = null
-                    val app = context.applicationContext
-                    val main = Handler(Looper.getMainLooper())
-                    Thread({
-                        val result = DiagnosticsExport.export(app)
-                        main.post {
-                            busy = false
-                            note = when (result) {
-                                is DiagnosticsExport.Result.Saved -> app.getString(R.string.settings_diag_saved, result.location) to false
-                                is DiagnosticsExport.Result.Failed -> app.getString(R.string.settings_diag_failed, result.reason) to true
-                            }
-                        }
-                    }, "OpenHC-DiagExport").start()
-                },
-            )
-            note?.let { (text, warn) -> RowNote(text, warn) }
-        }
         LiveLogRow()
     }
 }
 
 private const val LIVE_THROTTLE_MS = 350L
-private val LIVE_INLINE_TOOLBAR_MIN = 620.dp
+private val LIVE_SPLIT_TOOLBAR_MIN = 520.dp
 
+@OptIn(ExperimentalLayoutApi::class)
 @Composable
 private fun LiveLogRow() {
+    val context = LocalContext.current
     val compact = LocalCompact.current
     val buffer = remember { LiveLogBuffer() }
     val wake = remember { Channel<Unit>(Channel.CONFLATED) }
@@ -104,6 +75,8 @@ private fun LiveLogRow() {
     var warnOnly by remember { mutableStateOf(false) }
     var following by remember { mutableStateOf(true) }
     var jumpRequest by remember { mutableIntStateOf(0) }
+    var exporting by remember { mutableStateOf(false) }
+    var exportNote by remember { mutableStateOf<Pair<String, Boolean>?>(null) }
     val listState = rememberLazyListState()
 
     DisposableEffect(buffer) {
@@ -182,92 +155,116 @@ private fun LiveLogRow() {
         else -> stringResource(R.string.settings_diag_live_following, entries.size)
     }
 
-    val buttons: @Composable () -> Unit = {
-        Row(
-            horizontalArrangement = Arrangement.spacedBy(8.dp),
-            verticalAlignment = Alignment.CenterVertically,
-        ) {
-            if (!following && visibleEntries.isNotEmpty()) {
-                ActionButton(
-                    text = stringResource(R.string.settings_diag_live_to_bottom),
-                    kind = ActionKind.PRIMARY,
-                    onClick = { jumpRequest++ },
-                )
+    val onExport: () -> Unit = {
+        exporting = true
+        exportNote = null
+        val app = context.applicationContext
+        val main = Handler(Looper.getMainLooper())
+        Thread({
+            val result = DiagnosticsExport.export(app)
+            main.post {
+                exporting = false
+                exportNote = when (result) {
+                    is DiagnosticsExport.Result.Saved -> app.getString(R.string.settings_diag_saved, result.location) to false
+                    is DiagnosticsExport.Result.Failed -> app.getString(R.string.settings_diag_failed, result.reason) to true
+                }
             }
-            ActionButton(
-                text = stringResource(R.string.settings_diag_live_warn_only),
-                kind = if (warnOnly) ActionKind.PRIMARY else ActionKind.NORMAL,
-                onClick = {
-                    warnOnly = !warnOnly
+        }, "OpenHC-DiagExport").start()
+    }
+
+    val viewButtons: @Composable () -> Unit = {
+        ActionButton(
+            text = stringResource(R.string.settings_diag_live_warn_only),
+            kind = if (warnOnly) ActionKind.PRIMARY else ActionKind.NORMAL,
+            onClick = {
+                warnOnly = !warnOnly
+                following = true
+            },
+        )
+        ActionButton(
+            text = stringResource(if (paused) R.string.settings_diag_live_resume else R.string.settings_diag_live_pause),
+            kind = if (paused) ActionKind.PRIMARY else ActionKind.NORMAL,
+            onClick = {
+                val resuming = paused
+                paused = !paused
+                if (resuming) {
                     following = true
-                },
-            )
+                    jumpRequest++
+                }
+            },
+        )
+        ActionButton(
+            text = stringResource(R.string.settings_diag_live_clear),
+            enabled = entries.isNotEmpty() || pendingWhilePaused > 0,
+            onClick = {
+                buffer.clear()
+                entries = emptyList()
+                pendingWhilePaused = 0
+                paused = false
+                following = true
+            },
+        )
+        if (!following && visibleEntries.isNotEmpty()) {
             ActionButton(
-                text = stringResource(if (paused) R.string.settings_diag_live_resume else R.string.settings_diag_live_pause),
-                kind = if (paused) ActionKind.PRIMARY else ActionKind.NORMAL,
-                onClick = {
-                    val resuming = paused
-                    paused = !paused
-                    if (resuming) {
-                        following = true
-                        jumpRequest++
-                    }
-                },
-            )
-            ActionButton(
-                text = stringResource(R.string.settings_diag_live_clear),
-                enabled = entries.isNotEmpty() || pendingWhilePaused > 0,
-                onClick = {
-                    buffer.clear()
-                    entries = emptyList()
-                    pendingWhilePaused = 0
-                    paused = false
-                    following = true
-                },
+                text = stringResource(R.string.settings_diag_live_to_bottom),
+                kind = ActionKind.PRIMARY,
+                onClick = { jumpRequest++ },
             )
         }
     }
 
-    GroupRow(spacing = 10.dp) {
+    val exportButton: @Composable () -> Unit = {
+        ActionButton(
+            text = stringResource(if (exporting) R.string.settings_diag_exporting else R.string.settings_diag_export_button),
+            kind = ActionKind.PRIMARY,
+            enabled = !exporting,
+            onClick = onExport,
+        )
+    }
+
+    GroupRow(spacing = if (compact) 10.dp else 12.dp) {
+        RowHeader(
+            stringResource(R.string.settings_diag_live),
+            stringResource(R.string.settings_diag_live_hint, LiveLogBuffer.DEFAULT_MAX_LINES),
+            summary = summary,
+        )
+
         BoxWithConstraints(Modifier.fillMaxWidth()) {
-            val helpText = stringResource(R.string.settings_diag_live_hint, LiveLogBuffer.DEFAULT_MAX_LINES)
-            if (maxWidth >= LIVE_INLINE_TOOLBAR_MIN) {
+            if (maxWidth >= LIVE_SPLIT_TOOLBAR_MIN) {
                 Row(
                     Modifier.fillMaxWidth(),
-                    verticalAlignment = Alignment.Top,
+                    verticalAlignment = Alignment.CenterVertically,
+                    horizontalArrangement = Arrangement.spacedBy(8.dp),
                 ) {
-                    RowHeader(
-                        stringResource(R.string.settings_diag_live),
-                        helpText,
-                        modifier = Modifier.weight(1f),
-                        summary = summary,
-                    )
-                    Spacer(Modifier.width(12.dp))
-                    buttons()
+                    viewButtons()
+                    Spacer(Modifier.weight(1f))
+                    exportButton()
                 }
             } else {
-                Column(verticalArrangement = Arrangement.spacedBy(8.dp)) {
-                    RowHeader(
-                        stringResource(R.string.settings_diag_live),
-                        helpText,
-                        summary = summary,
-                    )
-                    buttons()
+                FlowRow(
+                    Modifier.fillMaxWidth(),
+                    horizontalArrangement = Arrangement.spacedBy(8.dp),
+                    verticalArrangement = Arrangement.spacedBy(8.dp),
+                ) {
+                    viewButtons()
+                    exportButton()
                 }
             }
         }
+
+        exportNote?.let { (text, warn) -> RowNote(text, warn) }
 
         val boxShape = RoundedCornerShape(12.dp)
         val lineStyle = remember(compact) {
             UiType.value(compact).copy(
                 fontSize = if (compact) 12.sp else 13.sp,
-                lineHeight = 1.38.em,
+                lineHeight = 1.4.em,
             )
         }
         Box(
             Modifier
                 .fillMaxWidth()
-                .height(if (compact) 210.dp else 320.dp)
+                .height(if (compact) 250.dp else 380.dp)
                 .clip(boxShape)
                 .background(Palette.SegmentBackground)
                 .border(1.dp, Palette.Divider, boxShape),
