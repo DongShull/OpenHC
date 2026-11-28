@@ -1,5 +1,6 @@
 package io.github.gcbond.openhc.ui
 
+import android.widget.Toast
 import androidx.compose.animation.animateColorAsState
 import androidx.compose.animation.core.Spring
 import androidx.compose.animation.core.animateDpAsState
@@ -35,8 +36,9 @@ import androidx.compose.ui.unit.IntOffset
 import androidx.compose.ui.unit.dp
 import io.github.gcbond.openhc.R
 import io.github.gcbond.openhc.settings.AppSettings
+import io.github.gcbond.openhc.settings.SolarThemeCalculator
 
-/** 丝滑平移胶囊深浅色切换：自动（随车机大灯 / 昼夜切换）、浅色、深色。 */
+/** 丝滑平移胶囊深浅色切换：自动（按定位/时区太阳起落自动切换）、浅色、深色。 */
 @Composable
 internal fun ThemeToggle(modifier: Modifier = Modifier) {
     val context = LocalContext.current
@@ -44,9 +46,37 @@ internal fun ThemeToggle(modifier: Modifier = Modifier) {
     val compact = LocalCompact.current
     val mode = Palette.themeMode
     val pick = { next: Int ->
+        val switchedToAuto = next == AppSettings.THEME_AUTO
         settings.themeMode = next
         Palette.themeMode = next
-        Palette.dark = settings.resolveDark(context)
+        if (switchedToAuto) {
+            val solar = settings.resolveSolar(context)
+            Palette.dark = solar.isNight
+            val sourceLabel = context.getString(
+                when (solar.source) {
+                    SolarThemeCalculator.GeoSource.LOCATION,
+                    SolarThemeCalculator.GeoSource.CACHED_LOCATION,
+                    -> R.string.theme_auto_source_location
+                    SolarThemeCalculator.GeoSource.TIMEZONE -> R.string.theme_auto_source_timezone
+                },
+            )
+            val msg = if (solar.sunriseMinutes != null && solar.sunsetMinutes != null) {
+                context.getString(
+                    R.string.theme_auto_toast_solar,
+                    SolarThemeCalculator.formatClockMinutes(solar.sunriseMinutes),
+                    SolarThemeCalculator.formatClockMinutes(solar.sunsetMinutes),
+                    sourceLabel,
+                )
+            } else {
+                context.getString(
+                    if (solar.isNight) R.string.theme_auto_toast_polar_night else R.string.theme_auto_toast_polar_day,
+                    sourceLabel,
+                )
+            }
+            Toast.makeText(context, msg, Toast.LENGTH_SHORT).show()
+        } else {
+            Palette.dark = settings.resolveDark(context)
+        }
     }
     val autoWidth = if (compact) 46.dp else 52.dp
     val iconWidth = if (compact) 38.dp else 42.dp

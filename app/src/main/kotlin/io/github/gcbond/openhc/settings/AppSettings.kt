@@ -46,7 +46,7 @@ class AppSettings(context: Context) {
         get() = prefs.getBoolean(KEY_FULL_SCREEN, true)
         set(value) = prefs.edit { putBoolean(KEY_FULL_SCREEN, value) }
 
-    /** 界面主题模式：自动跟随车机（默认）、浅色、深色。 */
+    /** 界面主题模式：自动（按定位/时区太阳起落切换，默认）、浅色、深色。 */
     var themeMode: Int
         get() {
             if (prefs.contains(KEY_THEME_MODE)) {
@@ -60,13 +60,38 @@ class AppSettings(context: Context) {
         }
         set(value) = prefs.edit { putInt(KEY_THEME_MODE, value.coerceIn(THEME_AUTO, THEME_DARK)) }
 
-    /** 按当前主题模式和车机系统的昼夜状态（大灯/夜间模式）算出此刻该用深色还是浅色。 */
+    /** 最近一次读到的定位坐标缓存（用于自动昼夜在无实时 GPS 锁定时维持本地日出日落精度）。 */
+    var cachedLocation: SolarThemeCalculator.GeoPoint?
+        get() {
+            if (!prefs.contains(KEY_LAST_LAT_BITS) || !prefs.contains(KEY_LAST_LON_BITS)) return null
+            val lat = Double.fromBits(prefs.getLong(KEY_LAST_LAT_BITS, 0L))
+            val lon = Double.fromBits(prefs.getLong(KEY_LAST_LON_BITS, 0L))
+            return if (SolarThemeCalculator.isValidCoordinate(lat, lon)) {
+                SolarThemeCalculator.GeoPoint(lat, lon)
+            } else {
+                null
+            }
+        }
+        set(value) = prefs.edit {
+            if (value == null || !SolarThemeCalculator.isValidCoordinate(value.latitude, value.longitude)) {
+                remove(KEY_LAST_LAT_BITS)
+                remove(KEY_LAST_LON_BITS)
+            } else {
+                putLong(KEY_LAST_LAT_BITS, value.latitude.toRawBits())
+                putLong(KEY_LAST_LON_BITS, value.longitude.toRawBits())
+            }
+        }
+
+    /** 按当前主题模式算出此刻该用深色还是浅色；自动模式按定位/时区太阳起落判断。 */
     fun resolveDark(context: Context): Boolean = when (themeMode) {
         THEME_LIGHT -> false
         THEME_DARK -> true
-        else -> (context.resources.configuration.uiMode and android.content.res.Configuration.UI_MODE_NIGHT_MASK) ==
-            android.content.res.Configuration.UI_MODE_NIGHT_YES
+        else -> resolveSolar(context).isNight
     }
+
+    /** 计算当前设备对应的太阳起落状态（含日出/日落时间与坐标来源）。 */
+    fun resolveSolar(context: Context): SolarThemeCalculator.SolarSnapshot =
+        SolarThemeResolver.resolve(context, this)
 
     /** 兼容旧字段：直接读写深浅色时同步更新 [themeMode]。 */
     var darkTheme: Boolean
@@ -95,5 +120,7 @@ class AppSettings(context: Context) {
         private const val KEY_FULL_SCREEN = "full_screen"
         private const val KEY_DARK_THEME = "dark_theme"
         private const val KEY_THEME_MODE = "theme_mode"
+        private const val KEY_LAST_LAT_BITS = "solar_last_lat_bits"
+        private const val KEY_LAST_LON_BITS = "solar_last_lon_bits"
     }
 }

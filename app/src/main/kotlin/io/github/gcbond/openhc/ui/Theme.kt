@@ -27,10 +27,10 @@ import androidx.compose.ui.unit.sp
  * 所以只能在组合、布局、绘制时读，不要存进 remember 或顶层常量。
  */
 internal object Palette {
-    /** 当前是不是深色。由 [MainActivity][io.github.gcbond.openhc.MainActivity] 按设置和车机夜间模式写入，[ThemeToggle] 切换。 */
+    /** 当前是不是深色。由 [MainActivity][io.github.gcbond.openhc.MainActivity] 按设置与太阳起落状态写入，[ThemeToggle] 切换。 */
     var dark by mutableStateOf(true)
 
-    /** 当前选中的主题档位（0 自动跟随车机、1 浅色、2 深色）。 */
+    /** 当前选中的主题档位（0 自动按太阳起落、1 浅色、2 深色）。 */
     var themeMode by mutableStateOf(0)
 
     private fun pick(dark: Long, light: Long) = Color(if (this.dark) dark else light)

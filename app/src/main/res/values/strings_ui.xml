@@ -96,6 +96,13 @@
     <string name="settings_subtitle_keys">方向盘按键与媒体控制映射</string>
     <string name="settings_subtitle_diagnostics">导出诊断报告与查看车机实时运行日志</string>
 
+    <!-- 自动昼夜（太阳起落）提示 -->
+    <string name="theme_auto_source_location">按定位</string>
+    <string name="theme_auto_source_timezone">按时区</string>
+    <string name="theme_auto_toast_solar">自动昼夜：日出 %1$s · 日落 %2$s（%3$s）</string>
+    <string name="theme_auto_toast_polar_day">自动昼夜：当前极昼浅色（%1$s）</string>
+    <string name="theme_auto_toast_polar_night">自动昼夜：当前极夜深色（%1$s）</string>
+
     <!-- 侧边栏版本与 GitHub 更新卡片 -->
     <string name="update_card_version">v%1$s</string>
     <string name="update_badge_idle">检查更新</string>

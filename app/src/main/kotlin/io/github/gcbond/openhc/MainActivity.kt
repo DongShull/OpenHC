@@ -123,15 +123,20 @@ class MainActivity : ComponentActivity() {
 
     override fun onResume() {
         super.onResume()
+        syncTheme()
         CarHome.attach(this)
         measureNavigationBar()
     }
 
     override fun onConfigurationChanged(newConfig: android.content.res.Configuration) {
         super.onConfigurationChanged(newConfig)
+        syncTheme()
+        measureNavigationBar()
+    }
+
+    private fun syncTheme() {
         Palette.themeMode = settings.themeMode
         Palette.dark = settings.resolveDark(this)
-        measureNavigationBar()
     }
 
     private fun measureNavigationBar() {
@@ -161,8 +166,7 @@ class MainActivity : ComponentActivity() {
     override fun onCreate(savedInstanceState: Bundle?) {
         super.onCreate(savedInstanceState)
         settings = AppSettings(this)
-        Palette.themeMode = settings.themeMode
-        Palette.dark = settings.resolveDark(this)
+        syncTheme()
         val identity = IdentityLoader.load(this)
         val actions = HomeActions(
             onStart = { requestStart(StartKind.START) },
@@ -184,15 +188,32 @@ class MainActivity : ComponentActivity() {
 
     override fun onStart() {
         super.onStart()
+        syncTheme()
         ContextCompat.registerReceiver(this, usbAttached, IntentFilter(UsbManager.ACTION_USB_DEVICE_ATTACHED), ContextCompat.RECEIVER_NOT_EXPORTED)
+        val timeFilter = IntentFilter().apply {
+            addAction(Intent.ACTION_TIME_TICK)
+            addAction(Intent.ACTION_TIME_CHANGED)
+            addAction(Intent.ACTION_TIMEZONE_CHANGED)
+        }
+        ContextCompat.registerReceiver(this, themeClockReceiver, timeFilter, ContextCompat.RECEIVER_NOT_EXPORTED)
         // 回到前台时手机插着：当作刚插上。还没同意过 VPN 授权时不自动弹授权框（拒绝后回到前台会一直弹），等用户点首页的按钮。
         controller.startIfPlugged { if (VpnConsent.isGranted(this)) requestStart(StartKind.PLUGGED) }
         wireless.onAppForeground()
     }
 
     override fun onStop() {
+        unregisterReceiver(themeClockReceiver)
         unregisterReceiver(usbAttached)
         super.onStop()
+    }
+
+    /** 自动主题下随分钟时钟、系统校时和跨时区变化实时切换日夜配色。 */
+    private val themeClockReceiver = object : BroadcastReceiver() {
+        override fun onReceive(context: Context, intent: Intent) {
+            if (settings.themeMode == AppSettings.THEME_AUTO) {
+                syncTheme()
+            }
+        }
     }
 
     /**

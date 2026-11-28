@@ -49,9 +49,8 @@
     <uses-permission
         android:name="android.permission.ACCESS_FINE_LOCATION"
         android:maxSdkVersion="32" />
-    <uses-permission
-        android:name="android.permission.ACCESS_COARSE_LOCATION"
-        android:maxSdkVersion="32" />
+    <!-- 若已获授权则读取粗略定位以精确计算本地日出日落（不主动弹窗索要，未授权时自动按设备时区推算）。 -->
+    <uses-permission android:name="android.permission.ACCESS_COARSE_LOCATION" />
     <!-- 这个属性安卓 12 起才有、这个权限安卓 13 起才有，老版本上两者都不起作用。 -->
     <uses-permission
         android:name="android.permission.NEARBY_WIFI_DEVICES"
