@@ -89,7 +89,7 @@ internal fun DiagnosticsSettingsSection() {
     }
 }
 
-private const val LIVE_THROTTLE_MS = 120L
+private const val LIVE_THROTTLE_MS = 350L
 private val LIVE_INLINE_TOOLBAR_MIN = 620.dp
 
 @Composable

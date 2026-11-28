@@ -202,8 +202,15 @@ class WirelessController(
     /** 用户点了停止：空闲说明显示「手机蓝牙重新连上时再自动连」，下次开始连接时清掉。 */
     private var userStopped = false
 
-    /** 正在等界面带到前台再拨（那 1.5 秒里别的入口不拨，免得拨成另一台）。 */
-    private var waitingForUi = false
+    /** 正在等界面带到前台再拨（超时前界面回到前台会立即接续拨号，不再白等或误判失败）。 */
+    private class PendingSurfaceDial(
+        val target: ReconnectTarget,
+        val resumeWiredAfter: Boolean,
+        val timeout: Runnable,
+    )
+
+    private var pendingSurfaceDial: PendingSurfaceDial? = null
+    private val waitingForUi: Boolean get() = pendingSurfaceDial != null
     private var autoRetry: Runnable? = null
     private var lastWiredActive = false
 
@@ -251,6 +258,7 @@ class WirelessController(
     fun start() = post {
         if (attempt != null) return@post
         cancelAutoRetry()
+        cancelPendingSurfaceDial()
         begin(Kind.MANUAL, dial = manualDialTarget())
     }
 
@@ -281,8 +289,23 @@ class WirelessController(
         teardown(current)
     }
 
-    /** 界面回到前台（含开机自动打开）：「自动连接手机」开着就拨最近连成功的那台（一次蓝牙连接只拨一次）。 */
+    /** 界面回到前台（含开机自动打开）：若正在等界面出来拨号就立即接续；否则「自动连接手机」开着就拨最近连成功的那台。 */
     fun onAppForeground() = post {
+        val pending = pendingSurfaceDial
+        if (pending != null) {
+            pendingSurfaceDial = null
+            handler.removeCallbacks(pending.timeout)
+            if (attempt == null && !wiredActive() && !phoneOnCable() && BluetoothTrigger.listens(wirelessPrefs.connectOnBluetooth, wirelessPrefs.wiredOnly)) {
+                Log.i(TAG, "界面已到前台，继续主动拨手机（${MacText.mask(pending.target.address)}）")
+                begin(Kind.RECONNECT, reconnect = pending.target, resumeWiredAfter = pending.resumeWiredAfter)
+                if (attempt == null && pending.resumeWiredAfter) {
+                    Log.i(TAG, "这次没拨成，让有线回到等插线")
+                    resumeWiredWaiting()
+                }
+            }
+            syncHotspotStandby()
+            return@post
+        }
         dialFromUi("界面回到前台")
         // 在后台申请热点会被系统拒绝：回到前台时补一次（已经开着或在申请时什么都不做）。
         if (hotspotStandby) warmHotspot()
@@ -337,6 +360,7 @@ class WirelessController(
     fun onWiredOnlyChanged() = post {
         syncBluetoothReceiver()
         cancelAutoRetry()
+        cancelPendingSurfaceDial()
         if (!wirelessPrefs.wiredOnly) {
             refreshIdleStatus("关掉了只用数据线连接")
             return@post
@@ -752,24 +776,35 @@ class WirelessController(
             if (attempt == null) giveUp()
             return
         }
-        Log.i(TAG, "车机主动拨手机（${MacText.mask(address)}）：$why；界面带到前台 $SURFACE_WAIT_MS 毫秒后再拨")
-        waitingForUi = true
-        handler.postDelayed({
-            waitingForUi = false
-            when {
-                attempt != null -> Log.i(TAG, "等界面时已经有连接在进行，不拨了")
-                !uiVisible() -> {
-                    Log.i(TAG, "界面没能打开（多半缺悬浮窗权限或被系统拦了），这次不拨：开不了热点")
-                    setAutoHold(AutoHold.UI_NOT_SHOWN)
-                    giveUp()
+        Log.i(TAG, "车机主动拨手机（${MacText.mask(address)}）：$why；等界面带到前台（最多 $SURFACE_WAIT_MS 毫秒）后再拨")
+        val timeout = object : Runnable {
+            override fun run() {
+                val pending = pendingSurfaceDial ?: return
+                if (pending.timeout !== this) return
+                pendingSurfaceDial = null
+                when {
+                    attempt != null -> Log.i(TAG, "等界面时已经有连接在进行，不拨了")
+                    !uiVisible() -> {
+                        Log.i(TAG, "界面没能打开（多半缺悬浮窗权限或被系统拦了），这次不拨：开不了热点")
+                        setAutoHold(AutoHold.UI_NOT_SHOWN)
+                        giveUp()
+                    }
+                    else -> {
+                        begin(Kind.RECONNECT, reconnect = target, resumeWiredAfter = resumeWiredAfter)
+                        if (attempt == null) giveUp()
+                    }
                 }
-                else -> {
-                    begin(Kind.RECONNECT, reconnect = target, resumeWiredAfter = resumeWiredAfter)
-                    if (attempt == null) giveUp()
-                }
+                syncHotspotStandby()
             }
-            syncHotspotStandby()
-        }, SURFACE_WAIT_MS)
+        }
+        pendingSurfaceDial = PendingSurfaceDial(target, resumeWiredAfter, timeout)
+        handler.postDelayed(timeout, SURFACE_WAIT_MS)
+    }
+
+    private fun cancelPendingSurfaceDial() {
+        val pending = pendingSurfaceDial ?: return
+        pendingSurfaceDial = null
+        handler.removeCallbacks(pending.timeout)
     }
 
     private fun uiVisible(): Boolean = (app as? OpenHcApp)?.uiVisibility?.visible != false
@@ -873,6 +908,10 @@ class WirelessController(
 
     /** 让出还在等手机的无线连接：默认只让自动进入的等回连，[anyKind] 时扫码等待、车机在拨也让；让了返回 true。 */
     private fun yieldWaiting(why: String, anyKind: Boolean = false): Boolean {
+        if (pendingSurfaceDial != null) {
+            Log.i(TAG, "$why，取消待界面回来的主动回连，让给有线")
+            cancelPendingSurfaceDial()
+        }
         val current = attempt ?: return false
         if (!anyKind && current.kind != Kind.AUTO) return false
         if (!isWaiting(current)) return false
@@ -1337,8 +1376,8 @@ class WirelessController(
         /** 同一台手机两次车机主动回连之间至少隔这么久。 */
         const val RECONNECT_COOLDOWN_MS = 60_000L
 
-        /** 车机主动回连时界面不在前台：带到前台后等这么久再拨（界面一般 1 秒内出来；出不来也照拨）。 */
-        const val SURFACE_WAIT_MS = 1_500L
+        /** 车机主动回连时界面不在前台：带到前台后最多等这么久再判打不开（期间界面一到前台会提前立即拨）。 */
+        const val SURFACE_WAIT_MS = 3_500L
 
         const val TAG = "OpenHC-Wireless"
 

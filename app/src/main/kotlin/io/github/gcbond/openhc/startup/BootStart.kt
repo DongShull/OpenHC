@@ -57,16 +57,16 @@ internal object BootStart {
     fun launchIntent(context: Context): Intent =
         Intent(context, MainActivity::class.java)
             .setAction(BootStartPolicy.ACTION_BOOT_LAUNCH)
-            .addFlags(Intent.FLAG_ACTIVITY_NEW_TASK)
+            .addFlags(Intent.FLAG_ACTIVITY_NEW_TASK or Intent.FLAG_ACTIVITY_REORDER_TO_FRONT)
 
     fun isBootLaunch(intent: Intent?): Boolean = intent != null &&
         BootStartPolicy.isBootLaunch(intent.action, intent.flags and Intent.FLAG_ACTIVITY_LAUNCHED_FROM_HISTORY != 0)
 
-    /** 开机静默连接把界面带到前台用的 Intent：界面已经在了就带到前台（singleTop，经 onNewIntent），不开始任何连接。 */
+    /** 开机静默连接或被车机桌面盖住时把界面带到前台用的 Intent：界面已经在了就提到前台，不重触发开始流程。 */
     fun surfaceIntent(context: Context): Intent =
         Intent(context, MainActivity::class.java)
             .setAction(BootStartPolicy.ACTION_SHOW_PROJECTION)
-            .addFlags(Intent.FLAG_ACTIVITY_NEW_TASK)
+            .addFlags(Intent.FLAG_ACTIVITY_NEW_TASK or Intent.FLAG_ACTIVITY_REORDER_TO_FRONT)
 
     /**
      * 「开机静默连接」这项功能放不放出来。还没在车上验证过，暂时收起：设置页不显示，以前打开过的也按关处理

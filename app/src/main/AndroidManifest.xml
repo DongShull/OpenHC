@@ -126,13 +126,15 @@
                 android:resource="@xml/usb_device_filter" />
         </activity-alias>
 
-        <!-- 开机自动打开（设置里的开关启停它，默认停用）：开机广播只有系统能发。 -->
+        <!-- 开机自动打开（设置里的开关启停它，默认停用）：开机广播只有系统能发（含部分车机快启广播）。 -->
         <receiver
             android:name=".startup.BootStartReceiver"
             android:enabled="false"
             android:exported="true">
             <intent-filter>
                 <action android:name="android.intent.action.BOOT_COMPLETED" />
+                <action android:name="android.intent.action.QUICKBOOT_POWERON" />
+                <action android:name="com.htc.intent.action.QUICKBOOT_POWERON" />
             </intent-filter>
         </receiver>
 

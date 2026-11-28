@@ -1,5 +1,7 @@
 package io.github.gcbond.openhc.ui
 
+import android.content.ActivityNotFoundException
+import android.widget.Toast
 import androidx.compose.foundation.background
 import androidx.compose.foundation.layout.Arrangement
 import androidx.compose.foundation.layout.BoxWithConstraints
@@ -43,6 +45,8 @@ import io.github.gcbond.openhc.connection.Notice
 import io.github.gcbond.openhc.connection.Phase
 import io.github.gcbond.openhc.connection.Step
 import io.github.gcbond.openhc.settings.WirelessPreferences
+import io.github.gcbond.openhc.startup.BootStart
+import io.github.gcbond.openhc.startup.BootStartPolicy
 import io.github.gcbond.openhc.wireless.AutoHold
 import io.github.gcbond.openhc.wireless.WirelessNotice
 import io.github.gcbond.openhc.wireless.WirelessPhase
@@ -358,10 +362,40 @@ private fun HomeBanners(
     // 缺身份参数由上面的身份提示卡片说，不重复。
     val hold = wireless.autoHold?.takeIf { !wiredOnly && it.needsAction() && it != AutoHold.IDENTITY_MISSING }
     val holdText = hold?.let { wirelessAutoHoldText(it) }
-    if (wiredNotice == null && wirelessNotice == null && holdText == null) return
+    val context = LocalContext.current
+    val bootEnabled = remember(wired.phase, wireless.phase) { BootStart.isEnabled(context) }
+    val bydAutostart = remember(context) { BootStart.bydAutostartIntent(context) }
+    val bootMissingNotice = if (
+        bootEnabled &&
+        bydAutostart != null &&
+        !BootStartPolicy.bootSeenSinceInstall(BootStart.lastRecord(context), BootStart.installedAtMillis(context))
+    ) {
+        stringResource(R.string.home_banner_byd_autostart)
+    } else {
+        null
+    }
+    if (wiredNotice == null && wirelessNotice == null && holdText == null && bootMissingNotice == null) return
     Column(modifier.fillMaxWidth(), verticalArrangement = Arrangement.spacedBy(8.dp)) {
         wiredNotice?.let { WarnBanner(it) }
         wirelessNotice?.let { WarnBanner(it) }
+        if (bootMissingNotice != null && bydAutostart != null) {
+            val noSettingsPage = stringResource(R.string.settings_boot_no_settings_page)
+            WarnBanner(
+                bootMissingNotice,
+                action = stringResource(R.string.home_banner_byd_autostart_action),
+                onAction = {
+                    val opened = listOf(bydAutostart, BootStart.appDetailsIntent(context)).any { intent ->
+                        try {
+                            context.startActivity(intent)
+                            true
+                        } catch (_: ActivityNotFoundException) {
+                            false
+                        }
+                    }
+                    if (!opened) Toast.makeText(context, noSettingsPage, Toast.LENGTH_LONG).show()
+                },
+            )
+        }
         if (hold != null && holdText != null) {
             val (label, onAction) = when (hold) {
                 AutoHold.OVERLAY_MISSING, AutoHold.UI_NOT_SHOWN, AutoHold.BLUETOOTH_ADDRESS_MISSING ->
